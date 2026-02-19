@@ -1,8 +1,8 @@
 use crate::provisioner::domain::model::{
     enums::provisioner_domain_error::ProvisionerDomainError,
     value_objects::{
-        database_password::DatabasePassword, database_username::DatabaseUsername,
-        provisioned_database_name::ProvisionedDatabaseName,
+        database_password::DatabasePassword, database_password_hash::DatabasePasswordHash,
+        database_username::DatabaseUsername, provisioned_database_name::ProvisionedDatabaseName,
     },
 };
 
@@ -11,6 +11,7 @@ pub struct CreateProvisionedDatabaseCommand {
     database_name: ProvisionedDatabaseName,
     username: DatabaseUsername,
     password: DatabasePassword,
+    password_hash: DatabasePasswordHash,
     apply_seed_data: bool,
 }
 
@@ -19,12 +20,14 @@ impl CreateProvisionedDatabaseCommand {
         database_name: String,
         username: String,
         password: String,
+        password_hash: String,
         apply_seed_data: bool,
     ) -> Result<Self, ProvisionerDomainError> {
         Ok(Self {
             database_name: ProvisionedDatabaseName::new(database_name)?,
             username: DatabaseUsername::new(username)?,
             password: DatabasePassword::new(password)?,
+            password_hash: DatabasePasswordHash::new(password_hash)?,
             apply_seed_data,
         })
     }
@@ -39,6 +42,10 @@ impl CreateProvisionedDatabaseCommand {
 
     pub fn password(&self) -> &DatabasePassword {
         &self.password
+    }
+
+    pub fn password_hash(&self) -> &DatabasePasswordHash {
+        &self.password_hash
     }
 
     pub fn apply_seed_data(&self) -> bool {

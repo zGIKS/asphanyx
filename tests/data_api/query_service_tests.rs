@@ -3,7 +3,7 @@ use swagger_axum_api::data_api::domain::{
     services::data_api_query_service::DataApiQueryService,
 };
 
-use crate::support::{create_query_harness, get_row_query, list_rows_query, fixtures};
+use crate::support::{create_query_harness, fixtures, get_row_query, list_rows_query};
 
 #[tokio::test]
 async fn handle_list_filters_unknown_columns_before_repository_call() {

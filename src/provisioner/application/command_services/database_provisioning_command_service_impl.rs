@@ -69,6 +69,7 @@ impl DatabaseProvisioningCommandService for DatabaseProvisioningCommandServiceIm
         let mut database = ProvisionedDatabase::new_provisioning(
             command.database_name().clone(),
             command.username().clone(),
+            command.password_hash().clone(),
             Utc::now(),
         );
 

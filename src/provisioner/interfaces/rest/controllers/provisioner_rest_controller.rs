@@ -1,11 +1,16 @@
 use std::sync::Arc;
 
+use argon2::{
+    Argon2,
+    password_hash::{PasswordHasher, SaltString, rand_core::OsRng},
+};
 use axum::{
     Json, Router,
     extract::{Path, Query, State},
     http::StatusCode,
     routing::{delete, get, post},
 };
+use rand::{Rng, distributions::Alphanumeric, thread_rng};
 use validator::Validate;
 
 use crate::provisioner::{
@@ -77,10 +82,15 @@ pub async fn create_provisioned_database(
         ));
     }
 
+    let generated_username = generate_database_username();
+    let generated_password = generate_database_password();
+    let generated_password_hash = hash_database_password(&generated_password)?;
+
     let command = CreateProvisionedDatabaseCommand::new(
         request.database_name,
-        request.username,
-        request.password,
+        generated_username,
+        generated_password,
+        generated_password_hash,
         request.apply_seed_data,
     )
     .map_err(map_domain_error)?;
@@ -100,6 +110,49 @@ pub async fn create_provisioned_database(
             created_at: created.created_at().to_rfc3339(),
         }),
     ))
+}
+
+fn generate_database_username() -> String {
+    format!("dbu_{}", random_alphanumeric_lowercase(16))
+}
+
+fn generate_database_password() -> String {
+    thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(48)
+        .map(char::from)
+        .collect()
+}
+
+fn random_alphanumeric_lowercase(len: usize) -> String {
+    let mut rng = thread_rng();
+    let mut value = String::with_capacity(len);
+
+    for _ in 0..len {
+        let candidate = rng.sample(Alphanumeric) as char;
+        value.push(candidate.to_ascii_lowercase());
+    }
+
+    value
+}
+
+fn hash_database_password(
+    password: &str,
+) -> Result<String, (StatusCode, Json<ErrorResponseResource>)> {
+    let salt = SaltString::generate(&mut OsRng);
+    let hash = Argon2::default()
+        .hash_password(password.as_bytes(), &salt)
+        .map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponseResource {
+                    message: format!("failed to hash generated database password: {error}"),
+                }),
+            )
+        })?
+        .to_string();
+
+    Ok(hash)
 }
 
 #[utoipa::path(

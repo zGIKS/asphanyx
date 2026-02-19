@@ -19,3 +19,5 @@ validator = { version = "0.20", features = ["derive"] }
 async-trait = "0.1"
 regex = "1"
 lazy_static = "1"
+rand = "0.8"
+argon2 = "0.5"

@@ -1,6 +1,6 @@
+use crate::data_api::domain::model::enums::data_api_domain_error::DataApiDomainError;
 use std::fmt;
 use uuid::Uuid;
-use crate::data_api::domain::model::enums::data_api_domain_error::DataApiDomainError;
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct TenantId(Uuid);
@@ -8,8 +8,7 @@ pub struct TenantId(Uuid);
 impl TenantId {
     pub fn new(value: String) -> Result<Self, DataApiDomainError> {
         let trimmed = value.trim();
-        let uuid = Uuid::parse_str(trimmed)
-            .map_err(|_| DataApiDomainError::InvalidTenantId)?;
+        let uuid = Uuid::parse_str(trimmed).map_err(|_| DataApiDomainError::InvalidTenantId)?;
         Ok(Self(uuid))
     }
 

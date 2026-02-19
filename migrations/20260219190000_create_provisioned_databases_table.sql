@@ -3,6 +3,7 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 CREATE TABLE IF NOT EXISTS provisioned_databases (
     database_name VARCHAR(63) PRIMARY KEY,
     username VARCHAR(63) NOT NULL,
+    password_hash TEXT NOT NULL,
     status VARCHAR(20) NOT NULL,
     created_at TIMESTAMPTZ NOT NULL
 );

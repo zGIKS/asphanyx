@@ -6,7 +6,8 @@ use crate::provisioner::domain::model::{
         provisioner_domain_error::ProvisionerDomainError,
     },
     value_objects::{
-        database_username::DatabaseUsername, provisioned_database_name::ProvisionedDatabaseName,
+        database_password_hash::DatabasePasswordHash, database_username::DatabaseUsername,
+        provisioned_database_name::ProvisionedDatabaseName,
     },
 };
 
@@ -14,6 +15,7 @@ use crate::provisioner::domain::model::{
 pub struct ProvisionedDatabase {
     database_name: ProvisionedDatabaseName,
     username: DatabaseUsername,
+    password_hash: DatabasePasswordHash,
     status: ProvisionedDatabaseStatus,
     created_at: DateTime<Utc>,
 }
@@ -22,11 +24,13 @@ impl ProvisionedDatabase {
     pub fn new_provisioning(
         database_name: ProvisionedDatabaseName,
         username: DatabaseUsername,
+        password_hash: DatabasePasswordHash,
         created_at: DateTime<Utc>,
     ) -> Self {
         Self {
             database_name,
             username,
+            password_hash,
             status: ProvisionedDatabaseStatus::Provisioning,
             created_at,
         }
@@ -35,12 +39,14 @@ impl ProvisionedDatabase {
     pub fn restore(
         database_name: ProvisionedDatabaseName,
         username: DatabaseUsername,
+        password_hash: DatabasePasswordHash,
         status: ProvisionedDatabaseStatus,
         created_at: DateTime<Utc>,
     ) -> Self {
         Self {
             database_name,
             username,
+            password_hash,
             status,
             created_at,
         }
@@ -86,6 +92,10 @@ impl ProvisionedDatabase {
 
     pub fn status(&self) -> ProvisionedDatabaseStatus {
         self.status
+    }
+
+    pub fn password_hash(&self) -> &DatabasePasswordHash {
+        &self.password_hash
     }
 
     pub fn created_at(&self) -> DateTime<Utc> {

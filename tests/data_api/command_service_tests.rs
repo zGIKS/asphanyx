@@ -5,7 +5,7 @@ use swagger_axum_api::data_api::domain::{
 };
 
 use crate::support::{
-    create_command_harness, create_row_command, patch_row_command, sample_payload, fixtures,
+    create_command_harness, create_row_command, fixtures, patch_row_command, sample_payload,
 };
 
 #[tokio::test]

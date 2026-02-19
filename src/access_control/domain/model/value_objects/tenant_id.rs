@@ -1,6 +1,6 @@
+use crate::access_control::domain::model::enums::access_control_domain_error::AccessControlDomainError;
 use std::fmt;
 use uuid::Uuid;
-use crate::access_control::domain::model::enums::access_control_domain_error::AccessControlDomainError;
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct TenantId(Uuid);
@@ -8,8 +8,8 @@ pub struct TenantId(Uuid);
 impl TenantId {
     pub fn new(value: String) -> Result<Self, AccessControlDomainError> {
         let trimmed = value.trim();
-        let uuid = Uuid::parse_str(trimmed)
-            .map_err(|_| AccessControlDomainError::InvalidTenantId)?;
+        let uuid =
+            Uuid::parse_str(trimmed).map_err(|_| AccessControlDomainError::InvalidTenantId)?;
         Ok(Self(uuid))
     }
 
