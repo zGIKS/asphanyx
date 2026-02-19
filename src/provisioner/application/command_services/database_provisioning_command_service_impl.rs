@@ -24,10 +24,10 @@ use crate::provisioner::{
     },
     infrastructure::persistence::repositories::{
         postgres_database_administration_repository::PostgresDatabaseAdministrationRepository,
+        provisioned_database_repository::ProvisionedDatabaseRepository,
         provisioning_audit_event_repository::{
             ProvisioningAuditEventRecord, ProvisioningAuditEventRepository,
         },
-        provisioned_database_repository::ProvisionedDatabaseRepository,
     },
 };
 

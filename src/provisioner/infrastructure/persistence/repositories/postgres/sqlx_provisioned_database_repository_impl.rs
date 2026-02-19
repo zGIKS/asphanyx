@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use sqlx::{PgPool, Row};
+use std::str::FromStr;
 
 use crate::provisioner::{
     domain::model::{
@@ -10,8 +11,7 @@ use crate::provisioner::{
             provisioner_domain_error::ProvisionerDomainError,
         },
         value_objects::{
-            database_username::DatabaseUsername,
-            provisioned_database_name::ProvisionedDatabaseName,
+            database_username::DatabaseUsername, provisioned_database_name::ProvisionedDatabaseName,
         },
     },
     infrastructure::persistence::repositories::provisioned_database_repository::ProvisionedDatabaseRepository,
@@ -34,7 +34,7 @@ impl SqlxProvisionedDatabaseRepositoryImpl {
         let status_raw: String = row.try_get("status").map_err(map_infra_error)?;
         let created_at: DateTime<Utc> = row.try_get("created_at").map_err(map_infra_error)?;
 
-        let status = ProvisionedDatabaseStatus::from_str(&status_raw).ok_or_else(|| {
+        let status = ProvisionedDatabaseStatus::from_str(&status_raw).map_err(|_| {
             ProvisionerDomainError::InfrastructureError("unknown status stored".to_string())
         })?;
 

@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProvisionedDatabaseStatus {
     Provisioning,
@@ -17,15 +19,19 @@ impl ProvisionedDatabaseStatus {
             Self::Deleted => "deleted",
         }
     }
+}
 
-    pub fn from_str(value: &str) -> Option<Self> {
+impl FromStr for ProvisionedDatabaseStatus {
+    type Err = ();
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value {
-            "provisioning" => Some(Self::Provisioning),
-            "active" => Some(Self::Active),
-            "failed" => Some(Self::Failed),
-            "deleting" => Some(Self::Deleting),
-            "deleted" => Some(Self::Deleted),
-            _ => None,
+            "provisioning" => Ok(Self::Provisioning),
+            "active" => Ok(Self::Active),
+            "failed" => Ok(Self::Failed),
+            "deleting" => Ok(Self::Deleting),
+            "deleted" => Ok(Self::Deleted),
+            _ => Err(()),
         }
     }
 }

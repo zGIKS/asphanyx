@@ -6,8 +6,7 @@ use crate::provisioner::domain::model::{
         provisioner_domain_error::ProvisionerDomainError,
     },
     value_objects::{
-        database_username::DatabaseUsername,
-        provisioned_database_name::ProvisionedDatabaseName,
+        database_username::DatabaseUsername, provisioned_database_name::ProvisionedDatabaseName,
     },
 };
 

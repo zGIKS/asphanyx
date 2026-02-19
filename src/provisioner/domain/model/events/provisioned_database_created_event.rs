@@ -1,8 +1,7 @@
 use chrono::{DateTime, Utc};
 
 use crate::provisioner::domain::model::value_objects::{
-    database_username::DatabaseUsername,
-    provisioned_database_name::ProvisionedDatabaseName,
+    database_username::DatabaseUsername, provisioned_database_name::ProvisionedDatabaseName,
 };
 
 #[derive(Clone, Debug)]

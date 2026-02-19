@@ -3,8 +3,7 @@ use async_trait::async_trait;
 use crate::provisioner::domain::model::{
     enums::provisioner_domain_error::ProvisionerDomainError,
     value_objects::{
-        database_password::DatabasePassword,
-        database_username::DatabaseUsername,
+        database_password::DatabasePassword, database_username::DatabaseUsername,
         provisioned_database_name::ProvisionedDatabaseName,
     },
 };

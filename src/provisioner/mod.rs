@@ -12,8 +12,8 @@ use crate::{
         },
         infrastructure::persistence::repositories::postgres::{
             sqlx_postgres_database_administration_repository_impl::SqlxPostgresDatabaseAdministrationRepositoryImpl,
-            sqlx_provisioning_audit_event_repository_impl::SqlxProvisioningAuditEventRepositoryImpl,
             sqlx_provisioned_database_repository_impl::SqlxProvisionedDatabaseRepositoryImpl,
+            sqlx_provisioning_audit_event_repository_impl::SqlxProvisioningAuditEventRepositoryImpl,
         },
         interfaces::rest::controllers::provisioner_rest_controller::{
             ProvisionerRestControllerState, router,

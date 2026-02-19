@@ -1,9 +1,6 @@
 use axum::Router;
 use dotenvy::dotenv;
-use utoipa::OpenApi;
-use utoipa_swagger_ui::SwaggerUi;
-
-use crate::{
+use swagger_axum_api::{
     config::app_config::AppConfig,
     provisioner::{
         build_provisioner_router,
@@ -16,16 +13,15 @@ use crate::{
         },
     },
 };
-
-mod config;
-mod provisioner;
+use utoipa::OpenApi;
+use utoipa_swagger_ui::SwaggerUi;
 
 #[derive(OpenApi)]
 #[openapi(
     paths(
-        provisioner::interfaces::rest::controllers::provisioner_rest_controller::create_provisioned_database,
-        provisioner::interfaces::rest::controllers::provisioner_rest_controller::delete_provisioned_database,
-        provisioner::interfaces::rest::controllers::provisioner_rest_controller::list_provisioned_databases
+        swagger_axum_api::provisioner::interfaces::rest::controllers::provisioner_rest_controller::create_provisioned_database,
+        swagger_axum_api::provisioner::interfaces::rest::controllers::provisioner_rest_controller::delete_provisioned_database,
+        swagger_axum_api::provisioner::interfaces::rest::controllers::provisioner_rest_controller::list_provisioned_databases
     ),
     components(
         schemas(

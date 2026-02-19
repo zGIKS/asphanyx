@@ -5,8 +5,7 @@ use crate::provisioner::{
     domain::model::{
         enums::provisioner_domain_error::ProvisionerDomainError,
         value_objects::{
-            database_password::DatabasePassword,
-            database_username::DatabaseUsername,
+            database_password::DatabasePassword, database_username::DatabaseUsername,
             provisioned_database_name::ProvisionedDatabaseName,
         },
     },
@@ -143,7 +142,6 @@ impl PostgresDatabaseAdministrationRepository for SqlxPostgresDatabaseAdministra
         database_name: &ProvisionedDatabaseName,
         username: &DatabaseUsername,
     ) -> Result<(), ProvisionerDomainError> {
-        self.delete_database_stack(database_name, username)
-            .await
+        self.delete_database_stack(database_name, username).await
     }
 }
