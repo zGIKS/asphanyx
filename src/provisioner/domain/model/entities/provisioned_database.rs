@@ -82,6 +82,10 @@ impl ProvisionedDatabase {
         Ok(())
     }
 
+    pub fn update_password_hash(&mut self, password_hash: DatabasePasswordHash) {
+        self.password_hash = password_hash;
+    }
+
     pub fn database_name(&self) -> &ProvisionedDatabaseName {
         &self.database_name
     }

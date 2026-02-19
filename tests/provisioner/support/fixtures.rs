@@ -1,6 +1,7 @@
 use chrono::Utc;
 use swagger_axum_api::provisioner::domain::model::{
     commands::{
+        change_provisioned_database_password_command::ChangeProvisionedDatabasePasswordCommand,
         create_provisioned_database_command::CreateProvisionedDatabaseCommand,
         delete_provisioned_database_command::DeleteProvisionedDatabaseCommand,
     },
@@ -25,6 +26,15 @@ pub fn create_command() -> CreateProvisionedDatabaseCommand {
 
 pub fn delete_command() -> DeleteProvisionedDatabaseCommand {
     DeleteProvisionedDatabaseCommand::new("tenant_alpha".to_string()).expect("valid command")
+}
+
+pub fn change_password_command() -> ChangeProvisionedDatabasePasswordCommand {
+    ChangeProvisionedDatabasePasswordCommand::new(
+        "tenant_alpha".to_string(),
+        "new_supersecret".to_string(),
+        "$argon2id$v=19$m=19456,t=2,p=1$c29tZXNhbHQ$newhashvalue".to_string(),
+    )
+    .expect("valid command")
 }
 
 pub fn database_with_status(status: ProvisionedDatabaseStatus) -> ProvisionedDatabase {

@@ -8,7 +8,7 @@ use axum::{
     Json, Router,
     extract::{Path, Query, State},
     http::StatusCode,
-    routing::{delete, get, post},
+    routing::{delete, get, patch, post},
 };
 use rand::{Rng, distributions::Alphanumeric, thread_rng};
 use validator::Validate;
@@ -17,6 +17,7 @@ use crate::provisioner::{
     domain::{
         model::{
             commands::{
+                change_provisioned_database_password_command::ChangeProvisionedDatabasePasswordCommand,
                 create_provisioned_database_command::CreateProvisionedDatabaseCommand,
                 delete_provisioned_database_command::DeleteProvisionedDatabaseCommand,
             },
@@ -29,6 +30,7 @@ use crate::provisioner::{
         },
     },
     interfaces::rest::resources::{
+        change_provisioned_database_password_request_resource::ChangeProvisionedDatabasePasswordRequestResource,
         create_provisioned_database_request_resource::{
             CreateProvisionedDatabaseRequestResource, ListProvisionedDatabasesQueryResource,
         },
@@ -50,6 +52,10 @@ pub fn router(state: ProvisionerRestControllerState) -> Router {
         .route(
             "/provisioner/databases/:database_name",
             delete(delete_provisioned_database),
+        )
+        .route(
+            "/provisioner/databases/:database_name/password",
+            patch(change_provisioned_database_password),
         )
         .with_state(state)
 }
@@ -83,14 +89,13 @@ pub async fn create_provisioned_database(
     }
 
     let generated_username = generate_database_username();
-    let generated_password = generate_database_password();
-    let generated_password_hash = hash_database_password(&generated_password)?;
+    let password_hash = hash_database_password(&request.password)?;
 
     let command = CreateProvisionedDatabaseCommand::new(
         request.database_name,
         generated_username,
-        generated_password,
-        generated_password_hash,
+        request.password,
+        password_hash,
         request.apply_seed_data,
     )
     .map_err(map_domain_error)?;
@@ -116,14 +121,6 @@ fn generate_database_username() -> String {
     format!("dbu_{}", random_alphanumeric_lowercase(16))
 }
 
-fn generate_database_password() -> String {
-    thread_rng()
-        .sample_iter(&Alphanumeric)
-        .take(48)
-        .map(char::from)
-        .collect()
-}
-
 fn random_alphanumeric_lowercase(len: usize) -> String {
     let mut rng = thread_rng();
     let mut value = String::with_capacity(len);
@@ -146,7 +143,7 @@ fn hash_database_password(
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponseResource {
-                    message: format!("failed to hash generated database password: {error}"),
+                    message: format!("failed to hash provided database password: {error}"),
                 }),
             )
         })?
@@ -176,6 +173,50 @@ pub async fn delete_provisioned_database(
     state
         .command_service
         .handle_delete(command)
+        .await
+        .map_err(map_domain_error)?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[utoipa::path(
+    patch,
+    path = "/provisioner/databases/{database_name}/password",
+    tag = "provisioner",
+    params(("database_name" = String, Path, description = "Database identifier")),
+    request_body = ChangeProvisionedDatabasePasswordRequestResource,
+    responses(
+        (status = 204, description = "Database password changed"),
+        (status = 400, description = "Invalid payload", body = ErrorResponseResource),
+        (status = 404, description = "Database not found", body = ErrorResponseResource),
+        (status = 500, description = "Infrastructure failure", body = ErrorResponseResource)
+    )
+)]
+pub async fn change_provisioned_database_password(
+    State(state): State<ProvisionerRestControllerState>,
+    Path(database_name): Path<String>,
+    Json(request): Json<ChangeProvisionedDatabasePasswordRequestResource>,
+) -> Result<StatusCode, (StatusCode, Json<ErrorResponseResource>)> {
+    if let Err(validation_error) = request.validate() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponseResource {
+                message: validation_error.to_string(),
+            }),
+        ));
+    }
+
+    let password_hash = hash_database_password(&request.password)?;
+    let command = ChangeProvisionedDatabasePasswordCommand::new(
+        database_name,
+        request.password,
+        password_hash,
+    )
+    .map_err(map_domain_error)?;
+
+    state
+        .command_service
+        .handle_change_password(command)
         .await
         .map_err(map_domain_error)?;
 

@@ -29,4 +29,10 @@ pub trait PostgresDatabaseAdministrationRepository: Send + Sync {
         database_name: &ProvisionedDatabaseName,
         username: &DatabaseUsername,
     ) -> Result<(), ProvisionerDomainError>;
+
+    async fn change_database_user_password(
+        &self,
+        username: &DatabaseUsername,
+        password: &DatabasePassword,
+    ) -> Result<(), ProvisionerDomainError>;
 }

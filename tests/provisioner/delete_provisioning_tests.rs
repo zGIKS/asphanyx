@@ -26,7 +26,7 @@ async fn handle_delete_succeeds_and_marks_deleted() {
             ProvisionedDatabaseStatus::Deleted,
         ]
     );
-    assert_eq!(harness.postgres_repository.stats(), (0, 1, 0));
+    assert_eq!(harness.postgres_repository.stats(), (0, 1, 0, 0));
     assert_eq!(
         harness.audit_repository.saved_event_names(),
         vec![
@@ -47,7 +47,7 @@ async fn handle_delete_returns_not_found_when_database_is_missing() {
         Err(ProvisionerDomainError::DatabaseNotFound)
     ));
     assert!(harness.metadata_repository.saved_statuses().is_empty());
-    assert_eq!(harness.postgres_repository.stats(), (0, 0, 0));
+    assert_eq!(harness.postgres_repository.stats(), (0, 0, 0, 0));
     assert!(harness.audit_repository.saved_event_names().is_empty());
 }
 
@@ -63,6 +63,6 @@ async fn handle_delete_is_idempotent_when_database_is_already_deleted() {
 
     assert!(result.is_ok());
     assert!(harness.metadata_repository.saved_statuses().is_empty());
-    assert_eq!(harness.postgres_repository.stats(), (0, 0, 0));
+    assert_eq!(harness.postgres_repository.stats(), (0, 0, 0, 0));
     assert!(harness.audit_repository.saved_event_names().is_empty());
 }

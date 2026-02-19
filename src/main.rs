@@ -25,6 +25,7 @@ use swagger_axum_api::{
     provisioner::{
         build_provisioner_router,
         interfaces::rest::resources::{
+            change_provisioned_database_password_request_resource::ChangeProvisionedDatabasePasswordRequestResource,
             create_provisioned_database_request_resource::{
                 CreateProvisionedDatabaseRequestResource, ListProvisionedDatabasesQueryResource,
             },
@@ -41,6 +42,7 @@ use utoipa_swagger_ui::SwaggerUi;
     paths(
         swagger_axum_api::provisioner::interfaces::rest::controllers::provisioner_rest_controller::create_provisioned_database,
         swagger_axum_api::provisioner::interfaces::rest::controllers::provisioner_rest_controller::delete_provisioned_database,
+        swagger_axum_api::provisioner::interfaces::rest::controllers::provisioner_rest_controller::change_provisioned_database_password,
         swagger_axum_api::provisioner::interfaces::rest::controllers::provisioner_rest_controller::list_provisioned_databases,
         swagger_axum_api::data_api::interfaces::rest::controllers::data_api_rest_controller::list_rows,
         swagger_axum_api::data_api::interfaces::rest::controllers::data_api_rest_controller::get_row,
@@ -55,6 +57,7 @@ use utoipa_swagger_ui::SwaggerUi;
     components(
         schemas(
             CreateProvisionedDatabaseRequestResource,
+            ChangeProvisionedDatabasePasswordRequestResource,
             ListProvisionedDatabasesQueryResource,
             ProvisionedDatabaseResource,
             ErrorResponseResource,

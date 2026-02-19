@@ -5,5 +5,5 @@ mod fixtures;
 #[path = "support/harness.rs"]
 mod harness;
 
-pub use fixtures::{create_command, database_with_status, delete_command};
+pub use fixtures::{change_password_command, create_command, database_with_status, delete_command};
 pub use harness::create_harness;
