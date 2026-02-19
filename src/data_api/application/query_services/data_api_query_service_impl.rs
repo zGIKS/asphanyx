@@ -134,6 +134,7 @@ impl DataApiQueryService for DataApiQueryServiceImpl {
 
         self.access_control_facade
             .check_table_permission(
+                query.tenant_id(),
                 query.principal(),
                 query.table_name(),
                 DataApiAction::Read,
@@ -213,6 +214,7 @@ impl DataApiQueryService for DataApiQueryServiceImpl {
 
         self.access_control_facade
             .check_table_permission(
+                query.tenant_id(),
                 query.principal(),
                 query.table_name(),
                 DataApiAction::Read,

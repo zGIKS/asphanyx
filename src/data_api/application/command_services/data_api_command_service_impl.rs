@@ -173,6 +173,7 @@ impl DataApiCommandService for DataApiCommandServiceImpl {
 
         self.access_control_facade
             .check_table_permission(
+                command.tenant_id(),
                 command.principal(),
                 command.table_name(),
                 DataApiAction::Create,
@@ -258,6 +259,7 @@ impl DataApiCommandService for DataApiCommandServiceImpl {
 
         self.access_control_facade
             .check_table_permission(
+                command.tenant_id(),
                 command.principal(),
                 command.table_name(),
                 DataApiAction::Update,
@@ -351,6 +353,7 @@ impl DataApiCommandService for DataApiCommandServiceImpl {
 
         self.access_control_facade
             .check_table_permission(
+                command.tenant_id(),
                 command.principal(),
                 command.table_name(),
                 DataApiAction::Delete,

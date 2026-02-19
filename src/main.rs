@@ -1,6 +1,17 @@
 use axum::Router;
 use dotenvy::dotenv;
 use swagger_axum_api::{
+    access_control::{
+        build_access_control_router,
+        interfaces::rest::resources::{
+            access_control_error_response_resource::AccessControlErrorResponseResource,
+            assign_role_request_resource::AssignRoleRequestResource,
+            evaluate_permission_request_resource::{
+                EvaluatePermissionRequestResource, EvaluatePermissionResponseResource,
+            },
+            upsert_policy_rule_request_resource::UpsertPolicyRuleRequestResource,
+        },
+    },
     config::app_config::AppConfig,
     data_api::{
         build_data_api_router,
@@ -36,7 +47,10 @@ use utoipa_swagger_ui::SwaggerUi;
         swagger_axum_api::data_api::interfaces::rest::controllers::data_api_rest_controller::create_row,
         swagger_axum_api::data_api::interfaces::rest::controllers::data_api_rest_controller::patch_row,
         swagger_axum_api::data_api::interfaces::rest::controllers::data_api_rest_controller::delete_row,
-        swagger_axum_api::data_api::interfaces::rest::controllers::data_api_rest_controller::introspect_table_schema
+        swagger_axum_api::data_api::interfaces::rest::controllers::data_api_rest_controller::introspect_table_schema,
+        swagger_axum_api::access_control::interfaces::rest::controllers::access_control_rest_controller::assign_role_to_principal,
+        swagger_axum_api::access_control::interfaces::rest::controllers::access_control_rest_controller::upsert_policy_rule,
+        swagger_axum_api::access_control::interfaces::rest::controllers::access_control_rest_controller::evaluate_permission
     ),
     components(
         schemas(
@@ -47,12 +61,18 @@ use utoipa_swagger_ui::SwaggerUi;
             DataApiAuthHeadersResource,
             DataApiErrorResponseResource,
             DataApiListRowsQueryResource,
-            DataApiPayloadResource
+            DataApiPayloadResource,
+            AssignRoleRequestResource,
+            UpsertPolicyRuleRequestResource,
+            EvaluatePermissionRequestResource,
+            EvaluatePermissionResponseResource,
+            AccessControlErrorResponseResource
         )
     ),
     tags(
         (name = "provisioner", description = "PostgreSQL database provisioning bounded context"),
-        (name = "data-api", description = "Dynamic and versioned CRUD data API bounded context")
+        (name = "data-api", description = "Dynamic and versioned CRUD data API bounded context"),
+        (name = "access-control", description = "Authorization policy engine bounded context")
     )
 )]
 struct ApiDoc;
@@ -69,10 +89,14 @@ async fn main() {
     let data_api_router = build_data_api_router(&config)
         .await
         .expect("failed to build data api router");
+    let access_control_router = build_access_control_router(&config)
+        .await
+        .expect("failed to build access control router");
 
     let app = Router::new()
         .merge(provisioner_router)
         .merge(data_api_router)
+        .merge(access_control_router)
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()));
 
     let addr = format!("0.0.0.0:{}", config.port);

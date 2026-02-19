@@ -83,7 +83,10 @@ impl FakeDataApiRepository {
     }
 
     pub fn set_create_should_fail(&self, value: bool) {
-        self.state.lock().expect("mutex poisoned").create_should_fail = value;
+        self.state
+            .lock()
+            .expect("mutex poisoned")
+            .create_should_fail = value;
     }
 
     pub fn set_patch_should_return_none(&self, value: bool) {
@@ -94,7 +97,10 @@ impl FakeDataApiRepository {
     }
 
     pub fn set_get_should_return_none(&self, value: bool) {
-        self.state.lock().expect("mutex poisoned").get_should_return_none = value;
+        self.state
+            .lock()
+            .expect("mutex poisoned")
+            .get_should_return_none = value;
     }
 
     pub fn set_without_primary_key(&self) {
@@ -316,6 +322,7 @@ impl FakeAccessControlFacade {
 impl AccessControlFacade for FakeAccessControlFacade {
     async fn check_table_permission(
         &self,
+        _tenant_id: &TenantId,
         principal: &str,
         table_name: &TableName,
         action: DataApiAction,
@@ -359,7 +366,10 @@ impl DataApiAuditLogRepository for FakeDataApiAuditLogRepository {
         &self,
         event: &DataApiRequestAuditedEvent,
     ) -> Result<(), DataApiDomainError> {
-        self.events.lock().expect("mutex poisoned").push(event.clone());
+        self.events
+            .lock()
+            .expect("mutex poisoned")
+            .push(event.clone());
         Ok(())
     }
 }

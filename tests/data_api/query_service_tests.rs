@@ -1,8 +1,6 @@
-use swagger_axum_api::data_api::{
-    domain::{
-        model::enums::{data_api_action::DataApiAction, data_api_domain_error::DataApiDomainError},
-        services::data_api_query_service::DataApiQueryService,
-    },
+use swagger_axum_api::data_api::domain::{
+    model::enums::{data_api_action::DataApiAction, data_api_domain_error::DataApiDomainError},
+    services::data_api_query_service::DataApiQueryService,
 };
 
 use crate::support::{create_query_harness, get_row_query, list_rows_query};
@@ -19,9 +17,15 @@ async fn handle_list_filters_unknown_columns_before_repository_call() {
         .last_list_criteria()
         .expect("list criteria should be captured");
     assert_eq!(criteria.fields, vec!["nombre".to_string()]);
-    assert_eq!(criteria.filters, vec![("nombre".to_string(), "Mouse".to_string())]);
+    assert_eq!(
+        criteria.filters,
+        vec![("nombre".to_string(), "Mouse".to_string())]
+    );
     assert_eq!(criteria.order_by, None);
-    assert_eq!(harness.repository.last_tenant_for_list().as_deref(), Some("tienda1"));
+    assert_eq!(
+        harness.repository.last_tenant_for_list().as_deref(),
+        Some("tienda1")
+    );
     assert_eq!(harness.tenant_schema_resolver.calls(), 1);
 
     let acl_calls = harness.access_control.calls();
@@ -55,5 +59,8 @@ async fn handle_get_fails_when_primary_key_is_missing() {
 
     let result = harness.service.handle_get(get_row_query()).await;
 
-    assert!(matches!(result, Err(DataApiDomainError::PrimaryKeyNotFound)));
+    assert!(matches!(
+        result,
+        Err(DataApiDomainError::PrimaryKeyNotFound)
+    ));
 }

@@ -49,7 +49,10 @@ pub fn create_command_harness(allowed_tables: &[&str]) -> DataApiCommandHarness 
         tenant_schema_resolver.clone(),
         access_control.clone(),
         audit.clone(),
-        allowed_tables.iter().map(|table| table.to_string()).collect(),
+        allowed_tables
+            .iter()
+            .map(|table| table.to_string())
+            .collect(),
         editable_columns,
     );
 
@@ -73,7 +76,10 @@ pub fn create_query_harness(allowed_tables: &[&str]) -> DataApiQueryHarness {
         tenant_schema_resolver.clone(),
         access_control.clone(),
         audit.clone(),
-        allowed_tables.iter().map(|table| table.to_string()).collect(),
+        allowed_tables
+            .iter()
+            .map(|table| table.to_string())
+            .collect(),
     );
 
     DataApiQueryHarness {

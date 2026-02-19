@@ -7,10 +7,21 @@ use axum::Router;
 use sqlx::PgPool;
 
 use crate::{
+    access_control::{
+        application::{
+            acl::access_control_facade_impl::AccessControlFacadeImpl,
+            query_services::access_control_query_service_impl::AccessControlQueryServiceImpl,
+        },
+        infrastructure::persistence::repositories::postgres::{
+            sqlx_authorization_decision_audit_repository_impl::SqlxAuthorizationDecisionAuditRepositoryImpl,
+            sqlx_policy_rule_repository_impl::SqlxPolicyRuleRepositoryImpl,
+            sqlx_role_assignment_repository_impl::SqlxRoleAssignmentRepositoryImpl,
+        },
+    },
     config::app_config::AppConfig,
     data_api::{
         application::{
-            acl::access_control_facade_allow_all_impl::AccessControlFacadeAllowAllImpl,
+            acl::access_control_facade_real_impl::AccessControlFacadeRealImpl,
             command_services::data_api_command_service_impl::DataApiCommandServiceImpl,
             query_services::data_api_query_service_impl::DataApiQueryServiceImpl,
         },
@@ -47,8 +58,21 @@ pub async fn build_data_api_router(config: &AppConfig) -> Result<Router, String>
         tenant_pool_cache,
     ));
     let tenant_schema_resolver = Arc::new(SqlxTenantSchemaResolverRepositoryImpl::new());
-    let audit_log_repository = Arc::new(SqlxDataApiAuditLogRepositoryImpl::new(admin_pool));
-    let access_control_facade = Arc::new(AccessControlFacadeAllowAllImpl::new());
+    let audit_log_repository = Arc::new(SqlxDataApiAuditLogRepositoryImpl::new(admin_pool.clone()));
+    let acl_role_assignment_repository =
+        Arc::new(SqlxRoleAssignmentRepositoryImpl::new(admin_pool.clone()));
+    let acl_policy_repository = Arc::new(SqlxPolicyRuleRepositoryImpl::new(admin_pool.clone()));
+    let acl_audit_repository = Arc::new(SqlxAuthorizationDecisionAuditRepositoryImpl::new(
+        admin_pool,
+    ));
+    let acl_query_service = Arc::new(AccessControlQueryServiceImpl::new(
+        acl_policy_repository,
+        acl_role_assignment_repository,
+        acl_audit_repository,
+    ));
+    let access_control_facade = Arc::new(AccessControlFacadeRealImpl::new(Arc::new(
+        AccessControlFacadeImpl::new(acl_query_service),
+    )));
 
     let allowed_tables = read_allowed_tables();
     let editable_columns = read_editable_columns();
