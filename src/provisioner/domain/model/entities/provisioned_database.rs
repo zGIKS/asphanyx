@@ -7,12 +7,14 @@ use crate::provisioner::domain::model::{
     },
     value_objects::{
         database_password_hash::DatabasePasswordHash, database_username::DatabaseUsername,
+        provisioned_database_id::ProvisionedDatabaseId,
         provisioned_database_name::ProvisionedDatabaseName,
     },
 };
 
 #[derive(Clone, Debug)]
 pub struct ProvisionedDatabase {
+    id: ProvisionedDatabaseId,
     database_name: ProvisionedDatabaseName,
     username: DatabaseUsername,
     password_hash: DatabasePasswordHash,
@@ -22,12 +24,14 @@ pub struct ProvisionedDatabase {
 
 impl ProvisionedDatabase {
     pub fn new_provisioning(
+        id: ProvisionedDatabaseId,
         database_name: ProvisionedDatabaseName,
         username: DatabaseUsername,
         password_hash: DatabasePasswordHash,
         created_at: DateTime<Utc>,
     ) -> Self {
         Self {
+            id,
             database_name,
             username,
             password_hash,
@@ -37,6 +41,7 @@ impl ProvisionedDatabase {
     }
 
     pub fn restore(
+        id: ProvisionedDatabaseId,
         database_name: ProvisionedDatabaseName,
         username: DatabaseUsername,
         password_hash: DatabasePasswordHash,
@@ -44,6 +49,7 @@ impl ProvisionedDatabase {
         created_at: DateTime<Utc>,
     ) -> Self {
         Self {
+            id,
             database_name,
             username,
             password_hash,
@@ -88,6 +94,10 @@ impl ProvisionedDatabase {
 
     pub fn database_name(&self) -> &ProvisionedDatabaseName {
         &self.database_name
+    }
+
+    pub fn id(&self) -> &ProvisionedDatabaseId {
+        &self.id
     }
 
     pub fn username(&self) -> &DatabaseUsername {

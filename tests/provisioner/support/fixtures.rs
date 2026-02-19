@@ -9,6 +9,7 @@ use swagger_axum_api::provisioner::domain::model::{
     enums::provisioned_database_status::ProvisionedDatabaseStatus,
     value_objects::{
         database_password_hash::DatabasePasswordHash, database_username::DatabaseUsername,
+        provisioned_database_id::ProvisionedDatabaseId,
         provisioned_database_name::ProvisionedDatabaseName,
     },
 };
@@ -39,6 +40,7 @@ pub fn change_password_command() -> ChangeProvisionedDatabasePasswordCommand {
 
 pub fn database_with_status(status: ProvisionedDatabaseStatus) -> ProvisionedDatabase {
     ProvisionedDatabase::restore(
+        ProvisionedDatabaseId::new_random(),
         ProvisionedDatabaseName::new("tenant_alpha".to_string()).expect("valid name"),
         DatabaseUsername::new("tenant_alpha_user".to_string()).expect("valid username"),
         DatabasePasswordHash::new(

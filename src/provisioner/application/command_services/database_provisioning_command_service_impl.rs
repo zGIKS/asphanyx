@@ -21,6 +21,7 @@ use crate::provisioner::{
                 provisioned_database_deleted_event::ProvisionedDatabaseDeletedEvent,
                 provisioned_database_password_changed_event::ProvisionedDatabasePasswordChangedEvent,
             },
+            value_objects::provisioned_database_id::ProvisionedDatabaseId,
         },
         services::database_provisioning_command_service::DatabaseProvisioningCommandService,
     },
@@ -69,6 +70,7 @@ impl DatabaseProvisioningCommandService for DatabaseProvisioningCommandServiceIm
         }
 
         let mut database = ProvisionedDatabase::new_provisioning(
+            ProvisionedDatabaseId::new_random(),
             command.database_name().clone(),
             command.username().clone(),
             command.password_hash().clone(),

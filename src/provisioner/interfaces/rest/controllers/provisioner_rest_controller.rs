@@ -109,6 +109,7 @@ pub async fn create_provisioned_database(
     Ok((
         StatusCode::CREATED,
         Json(ProvisionedDatabaseResource {
+            id: created.id().value().to_string(),
             database_name: created.database_name().value().to_string(),
             username: created.username().value().to_string(),
             status: created.status().as_str().to_string(),
@@ -247,6 +248,7 @@ pub async fn list_provisioned_databases(
     let payload = databases
         .into_iter()
         .map(|database| ProvisionedDatabaseResource {
+            id: database.id().value().to_string(),
             database_name: database.database_name().value().to_string(),
             username: database.username().value().to_string(),
             status: database.status().as_str().to_string(),
