@@ -28,9 +28,13 @@ async fn handle_create_routes_to_tenant_and_audits_success() {
 
     let acl_calls = harness.access_control.calls();
     assert_eq!(acl_calls.len(), 1);
-    assert!(matches!(acl_calls[0].action, DataApiAction::Create));
+    assert_eq!(acl_calls[0].action_name, "create");
     assert_eq!(acl_calls[0].table_name, "productos");
+    assert_eq!(acl_calls[0].tenant_id, "tienda1");
     assert_eq!(acl_calls[0].principal, "api-key-test");
+    assert_eq!(acl_calls[0].request_id.as_deref(), Some("req-1"));
+    assert_eq!(acl_calls[0].subject_owner_id.as_deref(), Some("owner-1"));
+    assert_eq!(acl_calls[0].row_owner_id.as_deref(), Some("owner-1"));
     let column_set = acl_calls[0].columns.iter().cloned().collect::<HashSet<_>>();
     assert_eq!(
         column_set,

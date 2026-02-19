@@ -18,6 +18,9 @@ pub struct ListRowsQuery {
     table_name: TableName,
     principal: String,
     principal_type: DataApiPrincipalType,
+    request_id: Option<String>,
+    subject_owner_id: Option<String>,
+    row_owner_id: Option<String>,
     select_fields: Vec<String>,
     filters: BTreeMap<String, String>,
     limit: i64,
@@ -33,6 +36,9 @@ pub struct ListRowsQueryParts {
     pub table_name: String,
     pub principal: String,
     pub principal_type: DataApiPrincipalType,
+    pub request_id: Option<String>,
+    pub subject_owner_id: Option<String>,
+    pub row_owner_id: Option<String>,
     pub select_fields: Vec<String>,
     pub filters: BTreeMap<String, String>,
     pub limit: i64,
@@ -54,6 +60,9 @@ impl ListRowsQuery {
             table_name: TableName::new(parts.table_name)?,
             principal: parts.principal,
             principal_type: parts.principal_type,
+            request_id: parts.request_id,
+            subject_owner_id: parts.subject_owner_id,
+            row_owner_id: parts.row_owner_id,
             select_fields: parts.select_fields,
             filters: parts.filters,
             limit: parts.limit,
@@ -80,6 +89,15 @@ impl ListRowsQuery {
     }
     pub fn principal_type(&self) -> DataApiPrincipalType {
         self.principal_type
+    }
+    pub fn request_id(&self) -> Option<&str> {
+        self.request_id.as_deref()
+    }
+    pub fn subject_owner_id(&self) -> Option<&str> {
+        self.subject_owner_id.as_deref()
+    }
+    pub fn row_owner_id(&self) -> Option<&str> {
+        self.row_owner_id.as_deref()
     }
     pub fn select_fields(&self) -> &[String] {
         &self.select_fields

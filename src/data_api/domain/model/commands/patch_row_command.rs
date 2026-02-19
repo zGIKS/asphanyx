@@ -19,6 +19,9 @@ pub struct PatchRowCommand {
     row_identifier: RowIdentifier,
     principal: String,
     principal_type: DataApiPrincipalType,
+    request_id: Option<String>,
+    subject_owner_id: Option<String>,
+    row_owner_id: Option<String>,
     payload: Value,
 }
 
@@ -30,6 +33,9 @@ pub struct PatchRowCommandParts {
     pub row_identifier: String,
     pub principal: String,
     pub principal_type: DataApiPrincipalType,
+    pub request_id: Option<String>,
+    pub subject_owner_id: Option<String>,
+    pub row_owner_id: Option<String>,
     pub payload: Value,
 }
 
@@ -47,6 +53,9 @@ impl PatchRowCommand {
             row_identifier: RowIdentifier::new(parts.row_identifier)?,
             principal: parts.principal,
             principal_type: parts.principal_type,
+            request_id: parts.request_id,
+            subject_owner_id: parts.subject_owner_id,
+            row_owner_id: parts.row_owner_id,
             payload: parts.payload,
         })
     }
@@ -71,6 +80,15 @@ impl PatchRowCommand {
     }
     pub fn principal_type(&self) -> DataApiPrincipalType {
         self.principal_type
+    }
+    pub fn request_id(&self) -> Option<&str> {
+        self.request_id.as_deref()
+    }
+    pub fn subject_owner_id(&self) -> Option<&str> {
+        self.subject_owner_id.as_deref()
+    }
+    pub fn row_owner_id(&self) -> Option<&str> {
+        self.row_owner_id.as_deref()
     }
     pub fn payload(&self) -> &Value {
         &self.payload

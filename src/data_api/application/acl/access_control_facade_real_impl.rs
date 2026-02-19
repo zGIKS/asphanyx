@@ -7,11 +7,10 @@ use crate::{
         AccessControlFacade as AccessControlBcFacade, AccessControlPermissionRequest,
     },
     data_api::{
-        domain::model::{
-            enums::{data_api_action::DataApiAction, data_api_domain_error::DataApiDomainError},
-            value_objects::{table_name::TableName, tenant_id::TenantId},
+        domain::model::enums::data_api_domain_error::DataApiDomainError,
+        interfaces::acl::access_control_facade::{
+            AccessControlFacade, DataApiAuthorizationCheckRequest,
         },
-        interfaces::acl::access_control_facade::AccessControlFacade,
     },
 };
 
@@ -29,23 +28,19 @@ impl AccessControlFacadeRealImpl {
 impl AccessControlFacade for AccessControlFacadeRealImpl {
     async fn check_table_permission(
         &self,
-        tenant_id: &TenantId,
-        principal: &str,
-        table_name: &TableName,
-        action: DataApiAction,
-        columns: &[String],
+        request: DataApiAuthorizationCheckRequest,
     ) -> Result<(), DataApiDomainError> {
         let decision = self
             .facade
             .check_permission(AccessControlPermissionRequest {
-                tenant_id: tenant_id.value().to_string(),
-                principal_id: principal.to_string(),
-                resource_name: table_name.value().to_string(),
-                action_name: action.as_str().to_string(),
-                requested_columns: columns.to_vec(),
-                subject_owner_id: None,
-                row_owner_id: None,
-                request_id: None,
+                tenant_id: request.tenant_id,
+                principal_id: request.principal_id,
+                resource_name: request.resource_name,
+                action_name: request.action_name,
+                requested_columns: request.requested_columns,
+                subject_owner_id: request.subject_owner_id,
+                row_owner_id: request.row_owner_id,
+                request_id: request.request_id,
             })
             .await
             .map_err(|e| DataApiDomainError::InfrastructureError(e.to_string()))?;

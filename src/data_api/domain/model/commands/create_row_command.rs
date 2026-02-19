@@ -18,31 +18,42 @@ pub struct CreateRowCommand {
     table_name: TableName,
     principal: String,
     principal_type: DataApiPrincipalType,
+    request_id: Option<String>,
+    subject_owner_id: Option<String>,
+    row_owner_id: Option<String>,
     payload: Value,
 }
 
+pub struct CreateRowCommandParts {
+    pub api_version: String,
+    pub tenant_id: String,
+    pub schema_name: String,
+    pub table_name: String,
+    pub principal: String,
+    pub principal_type: DataApiPrincipalType,
+    pub request_id: Option<String>,
+    pub subject_owner_id: Option<String>,
+    pub row_owner_id: Option<String>,
+    pub payload: Value,
+}
+
 impl CreateRowCommand {
-    pub fn new(
-        api_version: String,
-        tenant_id: String,
-        schema_name: String,
-        table_name: String,
-        principal: String,
-        principal_type: DataApiPrincipalType,
-        payload: Value,
-    ) -> Result<Self, DataApiDomainError> {
-        if !payload.is_object() {
+    pub fn new(parts: CreateRowCommandParts) -> Result<Self, DataApiDomainError> {
+        if !parts.payload.is_object() {
             return Err(DataApiDomainError::InvalidPayload);
         }
 
         Ok(Self {
-            api_version: ApiVersion::new(api_version)?,
-            tenant_id: TenantId::new(tenant_id)?,
-            schema_name: SchemaName::new(schema_name)?,
-            table_name: TableName::new(table_name)?,
-            principal,
-            principal_type,
-            payload,
+            api_version: ApiVersion::new(parts.api_version)?,
+            tenant_id: TenantId::new(parts.tenant_id)?,
+            schema_name: SchemaName::new(parts.schema_name)?,
+            table_name: TableName::new(parts.table_name)?,
+            principal: parts.principal,
+            principal_type: parts.principal_type,
+            request_id: parts.request_id,
+            subject_owner_id: parts.subject_owner_id,
+            row_owner_id: parts.row_owner_id,
+            payload: parts.payload,
         })
     }
 
@@ -63,6 +74,15 @@ impl CreateRowCommand {
     }
     pub fn principal_type(&self) -> DataApiPrincipalType {
         self.principal_type
+    }
+    pub fn request_id(&self) -> Option<&str> {
+        self.request_id.as_deref()
+    }
+    pub fn subject_owner_id(&self) -> Option<&str> {
+        self.subject_owner_id.as_deref()
+    }
+    pub fn row_owner_id(&self) -> Option<&str> {
+        self.row_owner_id.as_deref()
     }
     pub fn payload(&self) -> &Value {
         &self.payload

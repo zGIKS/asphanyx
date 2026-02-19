@@ -28,6 +28,7 @@ impl DataApiAuditLogRepository for SqlxDataApiAuditLogRepositoryImpl {
         let statement = r#"
             INSERT INTO data_api_audit_logs (
                 tenant_id,
+                request_id,
                 schema_name,
                 table_name,
                 action,
@@ -37,11 +38,12 @@ impl DataApiAuditLogRepository for SqlxDataApiAuditLogRepositoryImpl {
                 details,
                 occurred_at
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         "#;
 
         sqlx::query(statement)
             .bind(&event.tenant_id)
+            .bind(&event.request_id)
             .bind(&event.schema_name)
             .bind(&event.table_name)
             .bind(event.action.as_str())

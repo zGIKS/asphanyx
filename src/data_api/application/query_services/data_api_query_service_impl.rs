@@ -21,7 +21,9 @@ use crate::data_api::{
         data_api_repository::{DataApiRepository, GetRowByPrimaryKeyCriteria, ListRowsCriteria},
         tenant_schema_resolver_repository::TenantSchemaResolverRepository,
     },
-    interfaces::acl::access_control_facade::AccessControlFacade,
+    interfaces::acl::access_control_facade::{
+        AccessControlFacade, DataApiAuthorizationCheckRequest,
+    },
 };
 
 pub struct DataApiQueryServiceImpl {
@@ -34,6 +36,7 @@ pub struct DataApiQueryServiceImpl {
 
 struct AuditContext<'a> {
     tenant_id: &'a str,
+    request_id: Option<String>,
     schema_name: &'a str,
     table_name: &'a str,
     action: DataApiAction,
@@ -73,6 +76,7 @@ impl DataApiQueryServiceImpl {
             .audit_log_repository
             .save_event(&DataApiRequestAuditedEvent {
                 tenant_id: context.tenant_id.to_string(),
+                request_id: context.request_id,
                 schema_name: context.schema_name.to_string(),
                 table_name: context.table_name.to_string(),
                 action: context.action,
@@ -133,13 +137,16 @@ impl DataApiQueryService for DataApiQueryServiceImpl {
             .map(str::to_string);
 
         self.access_control_facade
-            .check_table_permission(
-                query.tenant_id(),
-                query.principal(),
-                query.table_name(),
-                DataApiAction::Read,
-                &selected_fields,
-            )
+            .check_table_permission(DataApiAuthorizationCheckRequest {
+                tenant_id: query.tenant_id().value().to_string(),
+                principal_id: query.principal().to_string(),
+                resource_name: query.table_name().value().to_string(),
+                action_name: DataApiAction::Read.as_str().to_string(),
+                requested_columns: selected_fields.clone(),
+                subject_owner_id: query.subject_owner_id().map(str::to_string),
+                row_owner_id: query.row_owner_id().map(str::to_string),
+                request_id: query.request_id().map(str::to_string),
+            })
             .await?;
 
         let result = self
@@ -163,6 +170,7 @@ impl DataApiQueryService for DataApiQueryServiceImpl {
             Ok(rows) => {
                 self.audit(AuditContext {
                     tenant_id: query.tenant_id().value(),
+                    request_id: query.request_id().map(str::to_string),
                     schema_name: schema_name.value(),
                     table_name: query.table_name().value(),
                     action: DataApiAction::Read,
@@ -177,6 +185,7 @@ impl DataApiQueryService for DataApiQueryServiceImpl {
             Err(error) => {
                 self.audit(AuditContext {
                     tenant_id: query.tenant_id().value(),
+                    request_id: query.request_id().map(str::to_string),
                     schema_name: schema_name.value(),
                     table_name: query.table_name().value(),
                     action: DataApiAction::Read,
@@ -213,13 +222,16 @@ impl DataApiQueryService for DataApiQueryServiceImpl {
             .ok_or(DataApiDomainError::PrimaryKeyNotFound)?;
 
         self.access_control_facade
-            .check_table_permission(
-                query.tenant_id(),
-                query.principal(),
-                query.table_name(),
-                DataApiAction::Read,
-                &[],
-            )
+            .check_table_permission(DataApiAuthorizationCheckRequest {
+                tenant_id: query.tenant_id().value().to_string(),
+                principal_id: query.principal().to_string(),
+                resource_name: query.table_name().value().to_string(),
+                action_name: DataApiAction::Read.as_str().to_string(),
+                requested_columns: vec![],
+                subject_owner_id: query.subject_owner_id().map(str::to_string),
+                row_owner_id: query.row_owner_id().map(str::to_string),
+                request_id: query.request_id().map(str::to_string),
+            })
             .await?;
 
         match self
@@ -238,6 +250,7 @@ impl DataApiQueryService for DataApiQueryServiceImpl {
             Ok(Some(row)) => {
                 self.audit(AuditContext {
                     tenant_id: query.tenant_id().value(),
+                    request_id: query.request_id().map(str::to_string),
                     schema_name: schema_name.value(),
                     table_name: query.table_name().value(),
                     action: DataApiAction::Read,
@@ -252,6 +265,7 @@ impl DataApiQueryService for DataApiQueryServiceImpl {
             Ok(None) => {
                 self.audit(AuditContext {
                     tenant_id: query.tenant_id().value(),
+                    request_id: query.request_id().map(str::to_string),
                     schema_name: schema_name.value(),
                     table_name: query.table_name().value(),
                     action: DataApiAction::Read,
@@ -266,6 +280,7 @@ impl DataApiQueryService for DataApiQueryServiceImpl {
             Err(error) => {
                 self.audit(AuditContext {
                     tenant_id: query.tenant_id().value(),
+                    request_id: query.request_id().map(str::to_string),
                     schema_name: schema_name.value(),
                     table_name: query.table_name().value(),
                     action: DataApiAction::Read,
@@ -289,6 +304,19 @@ impl DataApiQueryService for DataApiQueryServiceImpl {
         let schema_name = self
             .tenant_schema_resolver
             .resolve_schema(query.tenant_id(), Some(query.schema_name().value()))
+            .await?;
+
+        self.access_control_facade
+            .check_table_permission(DataApiAuthorizationCheckRequest {
+                tenant_id: query.tenant_id().value().to_string(),
+                principal_id: query.principal().to_string(),
+                resource_name: query.table_name().value().to_string(),
+                action_name: DataApiAction::Read.as_str().to_string(),
+                requested_columns: vec![],
+                subject_owner_id: query.subject_owner_id().map(str::to_string),
+                row_owner_id: query.row_owner_id().map(str::to_string),
+                request_id: query.request_id().map(str::to_string),
+            })
             .await?;
 
         let metadata = self

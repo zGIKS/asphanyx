@@ -13,8 +13,8 @@ use crate::data_api::{
     domain::{
         model::{
             commands::{
-                create_row_command::CreateRowCommand,
-                delete_row_command::DeleteRowCommand,
+                create_row_command::{CreateRowCommand, CreateRowCommandParts},
+                delete_row_command::{DeleteRowCommand, DeleteRowCommandParts},
                 patch_row_command::{PatchRowCommand, PatchRowCommandParts},
             },
             enums::{
@@ -22,9 +22,11 @@ use crate::data_api::{
                 data_api_principal_type::DataApiPrincipalType,
             },
             queries::{
-                get_row_query::GetRowQuery,
+                get_row_query::{GetRowQuery, GetRowQueryParts},
                 list_rows_query::{ListRowsQuery, ListRowsQueryParts},
-                table_schema_introspection_query::TableSchemaIntrospectionQuery,
+                table_schema_introspection_query::{
+                    TableSchemaIntrospectionQuery, TableSchemaIntrospectionQueryParts,
+                },
             },
         },
         services::{
@@ -63,8 +65,10 @@ pub fn router(state: DataApiRestControllerState) -> Router {
         ("table_name" = String, Path, description = "Nombre de tabla expuesta"),
         ("x-tenant-id" = String, Header, description = "Tenant id"),
         ("x-tenant-schema" = Option<String>, Header, description = "Schema opcional por tenant"),
-        ("x-api-key" = Option<String>, Header, description = "API key"),
-        ("authorization" = Option<String>, Header, description = "Bearer token"),
+        ("authorization" = String, Header, description = "JWT o API key del principal"),
+        ("x-request-id" = Option<String>, Header, description = "Correlation id opcional"),
+        ("x-subject-owner-id" = Option<String>, Header, description = "Owner id del sujeto"),
+        ("x-row-owner-id" = Option<String>, Header, description = "Owner id del recurso"),
         ("fields" = Option<String>, Query, description = "Campos separados por coma"),
         ("limit" = Option<i64>, Query, description = "Límite (1..500)"),
         ("offset" = Option<i64>, Query, description = "Offset >= 0"),
@@ -127,6 +131,9 @@ pub async fn list_rows(
         table_name,
         principal: auth.principal,
         principal_type: auth.principal_type,
+        request_id: auth.request_id,
+        subject_owner_id: auth.subject_owner_id,
+        row_owner_id: auth.row_owner_id,
         select_fields: fields,
         filters,
         limit,
@@ -154,8 +161,10 @@ pub async fn list_rows(
         ("row_id" = String, Path, description = "ID lógico (columna PK)"),
         ("x-tenant-id" = String, Header, description = "Tenant id"),
         ("x-tenant-schema" = Option<String>, Header, description = "Schema opcional por tenant"),
-        ("x-api-key" = Option<String>, Header, description = "API key"),
-        ("authorization" = Option<String>, Header, description = "Bearer token")
+        ("authorization" = String, Header, description = "JWT o API key del principal"),
+        ("x-request-id" = Option<String>, Header, description = "Correlation id opcional"),
+        ("x-subject-owner-id" = Option<String>, Header, description = "Owner id del sujeto"),
+        ("x-row-owner-id" = Option<String>, Header, description = "Owner id del recurso")
     ),
     responses(
         (status = 200, description = "Registro encontrado", body = Value),
@@ -172,15 +181,18 @@ pub async fn get_row(
 ) -> Result<Json<Value>, (StatusCode, Json<DataApiErrorResponseResource>)> {
     let auth = parse_auth_headers(&headers)?;
 
-    let query = GetRowQuery::new(
-        "v1".to_string(),
-        auth.tenant_id,
-        auth.schema_name,
+    let query = GetRowQuery::new(GetRowQueryParts {
+        api_version: "v1".to_string(),
+        tenant_id: auth.tenant_id,
+        schema_name: auth.schema_name,
         table_name,
-        row_id,
-        auth.principal,
-        auth.principal_type,
-    )
+        row_identifier: row_id,
+        principal: auth.principal,
+        principal_type: auth.principal_type,
+        request_id: auth.request_id,
+        subject_owner_id: auth.subject_owner_id,
+        row_owner_id: auth.row_owner_id,
+    })
     .map_err(map_domain_error)?;
 
     let row = state
@@ -200,8 +212,10 @@ pub async fn get_row(
         ("table_name" = String, Path, description = "Nombre de tabla"),
         ("x-tenant-id" = String, Header, description = "Tenant id"),
         ("x-tenant-schema" = Option<String>, Header, description = "Schema opcional por tenant"),
-        ("x-api-key" = Option<String>, Header, description = "API key"),
-        ("authorization" = Option<String>, Header, description = "Bearer token")
+        ("authorization" = String, Header, description = "JWT o API key del principal"),
+        ("x-request-id" = Option<String>, Header, description = "Correlation id opcional"),
+        ("x-subject-owner-id" = Option<String>, Header, description = "Owner id del sujeto"),
+        ("x-row-owner-id" = Option<String>, Header, description = "Owner id del recurso")
     ),
     request_body = DataApiPayloadResource,
     responses(
@@ -229,15 +243,18 @@ pub async fn create_row(
 
     let auth = parse_auth_headers(&headers)?;
 
-    let command = CreateRowCommand::new(
-        "v1".to_string(),
-        auth.tenant_id,
-        auth.schema_name,
+    let command = CreateRowCommand::new(CreateRowCommandParts {
+        api_version: "v1".to_string(),
+        tenant_id: auth.tenant_id,
+        schema_name: auth.schema_name,
         table_name,
-        auth.principal,
-        auth.principal_type,
-        resource.payload,
-    )
+        principal: auth.principal,
+        principal_type: auth.principal_type,
+        request_id: auth.request_id,
+        subject_owner_id: auth.subject_owner_id,
+        row_owner_id: auth.row_owner_id,
+        payload: resource.payload,
+    })
     .map_err(map_domain_error)?;
 
     let created = state
@@ -258,8 +275,10 @@ pub async fn create_row(
         ("row_id" = String, Path, description = "ID lógico (columna PK)"),
         ("x-tenant-id" = String, Header, description = "Tenant id"),
         ("x-tenant-schema" = Option<String>, Header, description = "Schema opcional por tenant"),
-        ("x-api-key" = Option<String>, Header, description = "API key"),
-        ("authorization" = Option<String>, Header, description = "Bearer token")
+        ("authorization" = String, Header, description = "JWT o API key del principal"),
+        ("x-request-id" = Option<String>, Header, description = "Correlation id opcional"),
+        ("x-subject-owner-id" = Option<String>, Header, description = "Owner id del sujeto"),
+        ("x-row-owner-id" = Option<String>, Header, description = "Owner id del recurso")
     ),
     request_body = DataApiPayloadResource,
     responses(
@@ -296,6 +315,9 @@ pub async fn patch_row(
         row_identifier: row_id,
         principal: auth.principal,
         principal_type: auth.principal_type,
+        request_id: auth.request_id,
+        subject_owner_id: auth.subject_owner_id,
+        row_owner_id: auth.row_owner_id,
         payload: resource.payload,
     })
     .map_err(map_domain_error)?;
@@ -318,8 +340,10 @@ pub async fn patch_row(
         ("row_id" = String, Path, description = "ID lógico (columna PK)"),
         ("x-tenant-id" = String, Header, description = "Tenant id"),
         ("x-tenant-schema" = Option<String>, Header, description = "Schema opcional por tenant"),
-        ("x-api-key" = Option<String>, Header, description = "API key"),
-        ("authorization" = Option<String>, Header, description = "Bearer token")
+        ("authorization" = String, Header, description = "JWT o API key del principal"),
+        ("x-request-id" = Option<String>, Header, description = "Correlation id opcional"),
+        ("x-subject-owner-id" = Option<String>, Header, description = "Owner id del sujeto"),
+        ("x-row-owner-id" = Option<String>, Header, description = "Owner id del recurso")
     ),
     responses(
         (status = 204, description = "Registro eliminado"),
@@ -336,15 +360,18 @@ pub async fn delete_row(
 ) -> Result<StatusCode, (StatusCode, Json<DataApiErrorResponseResource>)> {
     let auth = parse_auth_headers(&headers)?;
 
-    let command = DeleteRowCommand::new(
-        "v1".to_string(),
-        auth.tenant_id,
-        auth.schema_name,
+    let command = DeleteRowCommand::new(DeleteRowCommandParts {
+        api_version: "v1".to_string(),
+        tenant_id: auth.tenant_id,
+        schema_name: auth.schema_name,
         table_name,
-        row_id,
-        auth.principal,
-        auth.principal_type,
-    )
+        row_identifier: row_id,
+        principal: auth.principal,
+        principal_type: auth.principal_type,
+        request_id: auth.request_id,
+        subject_owner_id: auth.subject_owner_id,
+        row_owner_id: auth.row_owner_id,
+    })
     .map_err(map_domain_error)?;
 
     state
@@ -363,7 +390,11 @@ pub async fn delete_row(
     params(
         ("table_name" = String, Path, description = "Nombre de tabla"),
         ("x-tenant-id" = String, Header, description = "Tenant id"),
-        ("x-tenant-schema" = Option<String>, Header, description = "Schema opcional por tenant")
+        ("x-tenant-schema" = Option<String>, Header, description = "Schema opcional por tenant"),
+        ("authorization" = String, Header, description = "JWT o API key del principal"),
+        ("x-request-id" = Option<String>, Header, description = "Correlation id opcional"),
+        ("x-subject-owner-id" = Option<String>, Header, description = "Owner id del sujeto"),
+        ("x-row-owner-id" = Option<String>, Header, description = "Owner id del recurso")
     ),
     responses(
         (status = 200, description = "Metadatos de schema", body = Value),
@@ -376,15 +407,19 @@ pub async fn introspect_table_schema(
     Path(table_name): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<Value>, (StatusCode, Json<DataApiErrorResponseResource>)> {
-    let tenant_id = header_string(&headers, "x-tenant-id")?;
-    let schema_name = headers
-        .get("x-tenant-schema")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("public")
-        .to_string();
+    let auth = parse_auth_headers(&headers)?;
 
-    let query = TableSchemaIntrospectionQuery::new(tenant_id, schema_name, table_name)
-        .map_err(map_domain_error)?;
+    let query = TableSchemaIntrospectionQuery::new(TableSchemaIntrospectionQueryParts {
+        tenant_id: auth.tenant_id,
+        schema_name: auth.schema_name,
+        table_name,
+        principal: auth.principal,
+        principal_type: auth.principal_type,
+        request_id: auth.request_id,
+        subject_owner_id: auth.subject_owner_id,
+        row_owner_id: auth.row_owner_id,
+    })
+    .map_err(map_domain_error)?;
 
     let metadata = state
         .query_service
@@ -400,6 +435,9 @@ struct AuthContext {
     schema_name: String,
     principal: String,
     principal_type: DataApiPrincipalType,
+    request_id: Option<String>,
+    subject_owner_id: Option<String>,
+    row_owner_id: Option<String>,
 }
 
 fn parse_auth_headers(
@@ -412,36 +450,53 @@ fn parse_auth_headers(
         .unwrap_or("public")
         .to_string();
 
-    let api_key = headers
-        .get("x-api-key")
-        .and_then(|v| v.to_str().ok())
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
-        .map(str::to_string);
-
-    let bearer = headers
+    let authorization = headers
         .get("authorization")
         .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("Bearer "))
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| map_domain_error(DataApiDomainError::MissingAuthentication))?;
+
+    let (principal, principal_type) = if let Some(token) = authorization.strip_prefix("Bearer ") {
+        let token = token.trim();
+        if token.is_empty() {
+            return Err(map_domain_error(DataApiDomainError::InvalidAuthentication));
+        }
+        (token.to_string(), DataApiPrincipalType::Jwt)
+    } else {
+        (authorization.to_string(), DataApiPrincipalType::ApiKey)
+    };
+
+    let request_id = headers
+        .get("x-request-id")
+        .and_then(|v| v.to_str().ok())
         .map(str::trim)
         .filter(|v| !v.is_empty())
         .map(str::to_string);
 
-    match (api_key, bearer) {
-        (Some(key), _) => Ok(AuthContext {
-            tenant_id,
-            schema_name,
-            principal: key,
-            principal_type: DataApiPrincipalType::ApiKey,
-        }),
-        (None, Some(token)) => Ok(AuthContext {
-            tenant_id,
-            schema_name,
-            principal: token,
-            principal_type: DataApiPrincipalType::Jwt,
-        }),
-        (None, None) => Err(map_domain_error(DataApiDomainError::MissingAuthentication)),
-    }
+    let subject_owner_id = headers
+        .get("x-subject-owner-id")
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(str::to_string);
+
+    let row_owner_id = headers
+        .get("x-row-owner-id")
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(str::to_string);
+
+    Ok(AuthContext {
+        tenant_id,
+        schema_name,
+        principal,
+        principal_type,
+        request_id,
+        subject_owner_id,
+        row_owner_id,
+    })
 }
 
 fn header_string(

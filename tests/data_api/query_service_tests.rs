@@ -1,5 +1,5 @@
 use swagger_axum_api::data_api::domain::{
-    model::enums::{data_api_action::DataApiAction, data_api_domain_error::DataApiDomainError},
+    model::enums::data_api_domain_error::DataApiDomainError,
     services::data_api_query_service::DataApiQueryService,
 };
 
@@ -30,7 +30,7 @@ async fn handle_list_filters_unknown_columns_before_repository_call() {
 
     let acl_calls = harness.access_control.calls();
     assert_eq!(acl_calls.len(), 1);
-    assert!(matches!(acl_calls[0].action, DataApiAction::Read));
+    assert_eq!(acl_calls[0].action_name, "read");
 
     let audit_events = harness.audit.saved_events();
     assert_eq!(audit_events.len(), 1);

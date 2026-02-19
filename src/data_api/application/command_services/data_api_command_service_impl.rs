@@ -27,6 +27,7 @@ use crate::data_api::{
         tenant_schema_resolver_repository::TenantSchemaResolverRepository,
     },
     interfaces::acl::access_control_facade::AccessControlFacade,
+    interfaces::acl::access_control_facade::DataApiAuthorizationCheckRequest,
 };
 
 const MAX_PAYLOAD_BYTES: usize = 64 * 1024;
@@ -42,6 +43,7 @@ pub struct DataApiCommandServiceImpl {
 
 struct AuditContext<'a> {
     tenant_id: &'a str,
+    request_id: Option<String>,
     schema_name: &'a str,
     table_name: &'a str,
     action: DataApiAction,
@@ -130,6 +132,7 @@ impl DataApiCommandServiceImpl {
             .audit_log_repository
             .save_event(&DataApiRequestAuditedEvent {
                 tenant_id: context.tenant_id.to_string(),
+                request_id: context.request_id,
                 schema_name: context.schema_name.to_string(),
                 table_name: context.table_name.to_string(),
                 action: context.action,
@@ -172,13 +175,16 @@ impl DataApiCommandService for DataApiCommandServiceImpl {
             .collect::<Vec<_>>();
 
         self.access_control_facade
-            .check_table_permission(
-                command.tenant_id(),
-                command.principal(),
-                command.table_name(),
-                DataApiAction::Create,
-                &allowed_columns,
-            )
+            .check_table_permission(DataApiAuthorizationCheckRequest {
+                tenant_id: command.tenant_id().value().to_string(),
+                principal_id: command.principal().to_string(),
+                resource_name: command.table_name().value().to_string(),
+                action_name: DataApiAction::Create.as_str().to_string(),
+                requested_columns: allowed_columns.clone(),
+                subject_owner_id: command.subject_owner_id().map(str::to_string),
+                row_owner_id: command.row_owner_id().map(str::to_string),
+                request_id: command.request_id().map(str::to_string),
+            })
             .await?;
 
         let filtered_payload = Self::filter_allowed_payload(command.payload(), &allowed_columns);
@@ -199,6 +205,7 @@ impl DataApiCommandService for DataApiCommandServiceImpl {
             Ok(row) => {
                 self.audit(AuditContext {
                     tenant_id: command.tenant_id().value(),
+                    request_id: command.request_id().map(str::to_string),
                     schema_name: schema_name.value(),
                     table_name: command.table_name().value(),
                     action: DataApiAction::Create,
@@ -213,6 +220,7 @@ impl DataApiCommandService for DataApiCommandServiceImpl {
             Err(error) => {
                 self.audit(AuditContext {
                     tenant_id: command.tenant_id().value(),
+                    request_id: command.request_id().map(str::to_string),
                     schema_name: schema_name.value(),
                     table_name: command.table_name().value(),
                     action: DataApiAction::Create,
@@ -258,13 +266,16 @@ impl DataApiCommandService for DataApiCommandServiceImpl {
             .collect::<Vec<_>>();
 
         self.access_control_facade
-            .check_table_permission(
-                command.tenant_id(),
-                command.principal(),
-                command.table_name(),
-                DataApiAction::Update,
-                &allowed_columns,
-            )
+            .check_table_permission(DataApiAuthorizationCheckRequest {
+                tenant_id: command.tenant_id().value().to_string(),
+                principal_id: command.principal().to_string(),
+                resource_name: command.table_name().value().to_string(),
+                action_name: DataApiAction::Update.as_str().to_string(),
+                requested_columns: allowed_columns.clone(),
+                subject_owner_id: command.subject_owner_id().map(str::to_string),
+                row_owner_id: command.row_owner_id().map(str::to_string),
+                request_id: command.request_id().map(str::to_string),
+            })
             .await?;
 
         let filtered_payload = Self::filter_allowed_payload(command.payload(), &allowed_columns);
@@ -288,6 +299,7 @@ impl DataApiCommandService for DataApiCommandServiceImpl {
             Ok(Some(row)) => {
                 self.audit(AuditContext {
                     tenant_id: command.tenant_id().value(),
+                    request_id: command.request_id().map(str::to_string),
                     schema_name: schema_name.value(),
                     table_name: command.table_name().value(),
                     action: DataApiAction::Update,
@@ -302,6 +314,7 @@ impl DataApiCommandService for DataApiCommandServiceImpl {
             Ok(None) => {
                 self.audit(AuditContext {
                     tenant_id: command.tenant_id().value(),
+                    request_id: command.request_id().map(str::to_string),
                     schema_name: schema_name.value(),
                     table_name: command.table_name().value(),
                     action: DataApiAction::Update,
@@ -316,6 +329,7 @@ impl DataApiCommandService for DataApiCommandServiceImpl {
             Err(error) => {
                 self.audit(AuditContext {
                     tenant_id: command.tenant_id().value(),
+                    request_id: command.request_id().map(str::to_string),
                     schema_name: schema_name.value(),
                     table_name: command.table_name().value(),
                     action: DataApiAction::Update,
@@ -352,13 +366,16 @@ impl DataApiCommandService for DataApiCommandServiceImpl {
             .ok_or(DataApiDomainError::PrimaryKeyNotFound)?;
 
         self.access_control_facade
-            .check_table_permission(
-                command.tenant_id(),
-                command.principal(),
-                command.table_name(),
-                DataApiAction::Delete,
-                std::slice::from_ref(&primary_key.column_name),
-            )
+            .check_table_permission(DataApiAuthorizationCheckRequest {
+                tenant_id: command.tenant_id().value().to_string(),
+                principal_id: command.principal().to_string(),
+                resource_name: command.table_name().value().to_string(),
+                action_name: DataApiAction::Delete.as_str().to_string(),
+                requested_columns: vec![primary_key.column_name.clone()],
+                subject_owner_id: command.subject_owner_id().map(str::to_string),
+                row_owner_id: command.row_owner_id().map(str::to_string),
+                request_id: command.request_id().map(str::to_string),
+            })
             .await?;
 
         match self
@@ -377,6 +394,7 @@ impl DataApiCommandService for DataApiCommandServiceImpl {
             Ok(true) => {
                 self.audit(AuditContext {
                     tenant_id: command.tenant_id().value(),
+                    request_id: command.request_id().map(str::to_string),
                     schema_name: schema_name.value(),
                     table_name: command.table_name().value(),
                     action: DataApiAction::Delete,
@@ -391,6 +409,7 @@ impl DataApiCommandService for DataApiCommandServiceImpl {
             Ok(false) => {
                 self.audit(AuditContext {
                     tenant_id: command.tenant_id().value(),
+                    request_id: command.request_id().map(str::to_string),
                     schema_name: schema_name.value(),
                     table_name: command.table_name().value(),
                     action: DataApiAction::Delete,
@@ -405,6 +424,7 @@ impl DataApiCommandService for DataApiCommandServiceImpl {
             Err(error) => {
                 self.audit(AuditContext {
                     tenant_id: command.tenant_id().value(),
+                    request_id: command.request_id().map(str::to_string),
                     schema_name: schema_name.value(),
                     table_name: command.table_name().value(),
                     action: DataApiAction::Delete,

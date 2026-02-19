@@ -5,9 +5,9 @@ use serde_json::{Value, json};
 use swagger_axum_api::data_api::{
     domain::model::{
         entities::table_schema_metadata::{TableColumnMetadata, TableSchemaMetadata},
-        enums::{data_api_action::DataApiAction, data_api_domain_error::DataApiDomainError},
+        enums::data_api_domain_error::DataApiDomainError,
         events::data_api_request_audited_event::DataApiRequestAuditedEvent,
-        value_objects::{schema_name::SchemaName, table_name::TableName, tenant_id::TenantId},
+        value_objects::{schema_name::SchemaName, tenant_id::TenantId},
     },
     infrastructure::persistence::repositories::{
         data_api_audit_log_repository::DataApiAuditLogRepository,
@@ -17,7 +17,9 @@ use swagger_axum_api::data_api::{
         },
         tenant_schema_resolver_repository::TenantSchemaResolverRepository,
     },
-    interfaces::acl::access_control_facade::AccessControlFacade,
+    interfaces::acl::access_control_facade::{
+        AccessControlFacade, DataApiAuthorizationCheckRequest,
+    },
 };
 
 #[derive(Default)]
@@ -286,10 +288,14 @@ impl TenantSchemaResolverRepository for FakeTenantSchemaResolverRepository {
 
 #[derive(Clone, Debug)]
 pub struct AccessCheckCall {
+    pub tenant_id: String,
     pub principal: String,
     pub table_name: String,
-    pub action: DataApiAction,
+    pub action_name: String,
     pub columns: Vec<String>,
+    pub request_id: Option<String>,
+    pub subject_owner_id: Option<String>,
+    pub row_owner_id: Option<String>,
 }
 
 #[derive(Default)]
@@ -322,18 +328,18 @@ impl FakeAccessControlFacade {
 impl AccessControlFacade for FakeAccessControlFacade {
     async fn check_table_permission(
         &self,
-        _tenant_id: &TenantId,
-        principal: &str,
-        table_name: &TableName,
-        action: DataApiAction,
-        columns: &[String],
+        request: DataApiAuthorizationCheckRequest,
     ) -> Result<(), DataApiDomainError> {
         let mut state = self.state.lock().expect("mutex poisoned");
         state.calls.push(AccessCheckCall {
-            principal: principal.to_string(),
-            table_name: table_name.value().to_string(),
-            action,
-            columns: columns.to_vec(),
+            tenant_id: request.tenant_id,
+            principal: request.principal_id,
+            table_name: request.resource_name,
+            action_name: request.action_name,
+            columns: request.requested_columns,
+            request_id: request.request_id,
+            subject_owner_id: request.subject_owner_id,
+            row_owner_id: request.row_owner_id,
         });
 
         if state.deny {
