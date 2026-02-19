@@ -1,6 +1,6 @@
 CREATE TABLE IF NOT EXISTS data_api_audit_logs (
-    id BIGSERIAL PRIMARY KEY,
-    tenant_id TEXT NOT NULL,
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v7(),
+    tenant_id UUID NOT NULL,
     request_id TEXT,
     schema_name TEXT NOT NULL,
     table_name TEXT NOT NULL,

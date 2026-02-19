@@ -40,8 +40,8 @@ impl AuthorizationDecisionAuditRepository for SqlxAuthorizationDecisionAuditRepo
         "#;
 
         sqlx::query(statement)
-            .bind(&event.tenant_id)
-            .bind(&event.principal_id)
+            .bind(event.tenant_id)
+            .bind(event.principal_id)
             .bind(&event.request_id)
             .bind(&event.resource_name)
             .bind(&event.action_name)

@@ -1,3 +1,5 @@
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
 CREATE TABLE IF NOT EXISTS provisioned_databases (
     database_name VARCHAR(63) PRIMARY KEY,
     username VARCHAR(63) NOT NULL,
@@ -6,7 +8,7 @@ CREATE TABLE IF NOT EXISTS provisioned_databases (
 );
 
 CREATE TABLE IF NOT EXISTS provisioning_audit_events (
-    id BIGSERIAL PRIMARY KEY,
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v7(),
     event_name VARCHAR(64) NOT NULL,
     database_name VARCHAR(63) NOT NULL,
     username VARCHAR(63),

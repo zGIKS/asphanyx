@@ -7,10 +7,14 @@ use swagger_axum_api::access_control::domain::model::{
     queries::evaluate_permission_query::{EvaluatePermissionQuery, EvaluatePermissionQueryParts},
 };
 
+// UUIDs de prueba consistentes
+pub const TENANT_A_ID: &str = "01234567-89ab-7def-0123-456789abcdef";
+pub const PRINCIPAL_1_ID: &str = "fedcba98-7654-7321-fedc-ba9876543210";
+
 pub fn assign_role_command() -> AssignRoleToPrincipalCommand {
     AssignRoleToPrincipalCommand::new(
-        "tenant_a".to_string(),
-        "principal_1".to_string(),
+        TENANT_A_ID.to_string(),
+        PRINCIPAL_1_ID.to_string(),
         "admin".to_string(),
     )
     .expect("valid assign role command")
@@ -18,7 +22,7 @@ pub fn assign_role_command() -> AssignRoleToPrincipalCommand {
 
 pub fn upsert_policy_allow_all_command() -> UpsertPolicyRuleCommand {
     UpsertPolicyRuleCommand::new(UpsertPolicyRuleCommandParts {
-        tenant_id: "tenant_a".to_string(),
+        tenant_id: TENANT_A_ID.to_string(),
         role_name: "admin".to_string(),
         resource_name: "productos".to_string(),
         action_name: "read".to_string(),
@@ -32,7 +36,7 @@ pub fn upsert_policy_allow_all_command() -> UpsertPolicyRuleCommand {
 
 pub fn upsert_policy_deny_all_command() -> UpsertPolicyRuleCommand {
     UpsertPolicyRuleCommand::new(UpsertPolicyRuleCommandParts {
-        tenant_id: "tenant_a".to_string(),
+        tenant_id: TENANT_A_ID.to_string(),
         role_name: "admin".to_string(),
         resource_name: "productos".to_string(),
         action_name: "read".to_string(),
@@ -46,8 +50,8 @@ pub fn upsert_policy_deny_all_command() -> UpsertPolicyRuleCommand {
 
 pub fn evaluate_query() -> EvaluatePermissionQuery {
     EvaluatePermissionQuery::new(EvaluatePermissionQueryParts {
-        tenant_id: "tenant_a".to_string(),
-        principal_id: "principal_1".to_string(),
+        tenant_id: TENANT_A_ID.to_string(),
+        principal_id: PRINCIPAL_1_ID.to_string(),
         resource_name: "productos".to_string(),
         action_name: "read".to_string(),
         requested_columns: vec![],
@@ -60,8 +64,8 @@ pub fn evaluate_query() -> EvaluatePermissionQuery {
 
 pub fn evaluate_query_with_columns(columns: Vec<&str>) -> EvaluatePermissionQuery {
     EvaluatePermissionQuery::new(EvaluatePermissionQueryParts {
-        tenant_id: "tenant_a".to_string(),
-        principal_id: "principal_1".to_string(),
+        tenant_id: TENANT_A_ID.to_string(),
+        principal_id: PRINCIPAL_1_ID.to_string(),
         resource_name: "productos".to_string(),
         action_name: "read".to_string(),
         requested_columns: columns.into_iter().map(str::to_string).collect(),
@@ -74,8 +78,8 @@ pub fn evaluate_query_with_columns(columns: Vec<&str>) -> EvaluatePermissionQuer
 
 pub fn evaluate_query_with_request_id(request_id: &str) -> EvaluatePermissionQuery {
     EvaluatePermissionQuery::new(EvaluatePermissionQueryParts {
-        tenant_id: "tenant_a".to_string(),
-        principal_id: "principal_1".to_string(),
+        tenant_id: TENANT_A_ID.to_string(),
+        principal_id: PRINCIPAL_1_ID.to_string(),
         resource_name: "productos".to_string(),
         action_name: "read".to_string(),
         requested_columns: vec![],

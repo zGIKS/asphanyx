@@ -3,7 +3,7 @@ use swagger_axum_api::data_api::domain::{
     services::data_api_query_service::DataApiQueryService,
 };
 
-use crate::support::{create_query_harness, get_row_query, list_rows_query};
+use crate::support::{create_query_harness, get_row_query, list_rows_query, fixtures};
 
 #[tokio::test]
 async fn handle_list_filters_unknown_columns_before_repository_call() {
@@ -24,7 +24,7 @@ async fn handle_list_filters_unknown_columns_before_repository_call() {
     assert_eq!(criteria.order_by, None);
     assert_eq!(
         harness.repository.last_tenant_for_list().as_deref(),
-        Some("tienda1")
+        Some(fixtures::TENANT_1_ID)
     );
     assert_eq!(harness.tenant_schema_resolver.calls(), 1);
 

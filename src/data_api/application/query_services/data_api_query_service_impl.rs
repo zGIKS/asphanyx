@@ -3,6 +3,7 @@ use std::{collections::HashSet, sync::Arc};
 use async_trait::async_trait;
 use chrono::Utc;
 use serde_json::{Value, json};
+use uuid::Uuid;
 
 use crate::data_api::{
     domain::{
@@ -35,7 +36,7 @@ pub struct DataApiQueryServiceImpl {
 }
 
 struct AuditContext<'a> {
-    tenant_id: &'a str,
+    tenant_id: Uuid,
     request_id: Option<String>,
     schema_name: &'a str,
     table_name: &'a str,
@@ -75,7 +76,7 @@ impl DataApiQueryServiceImpl {
         let _ = self
             .audit_log_repository
             .save_event(&DataApiRequestAuditedEvent {
-                tenant_id: context.tenant_id.to_string(),
+                tenant_id: context.tenant_id,
                 request_id: context.request_id,
                 schema_name: context.schema_name.to_string(),
                 table_name: context.table_name.to_string(),

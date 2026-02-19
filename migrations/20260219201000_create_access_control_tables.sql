@@ -1,13 +1,13 @@
 CREATE TABLE IF NOT EXISTS access_role_assignments (
-    tenant_id TEXT NOT NULL,
-    principal_id TEXT NOT NULL,
+    tenant_id UUID NOT NULL,
+    principal_id UUID NOT NULL,
     role_name TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (tenant_id, principal_id, role_name)
 );
 
 CREATE TABLE IF NOT EXISTS access_policy_rules (
-    tenant_id TEXT NOT NULL,
+    tenant_id UUID NOT NULL,
     role_name TEXT NOT NULL,
     resource_name TEXT NOT NULL,
     action_name TEXT NOT NULL,
@@ -19,9 +19,9 @@ CREATE TABLE IF NOT EXISTS access_policy_rules (
 );
 
 CREATE TABLE IF NOT EXISTS access_authorization_decision_audit (
-    id BIGSERIAL PRIMARY KEY,
-    tenant_id TEXT NOT NULL,
-    principal_id TEXT NOT NULL,
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v7(),
+    tenant_id UUID NOT NULL,
+    principal_id UUID NOT NULL,
     resource_name TEXT NOT NULL,
     action_name TEXT NOT NULL,
     allowed BOOLEAN NOT NULL,

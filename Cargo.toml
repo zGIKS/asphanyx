@@ -11,8 +11,9 @@ serde_json = "1"
 utoipa = { version = "5", features = ["axum_extras"] }
 utoipa-swagger-ui = { version = "8", features = ["axum"] }
 dotenvy = "0.15"
-sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "postgres", "chrono", "macros", "migrate"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "postgres", "chrono", "macros", "migrate", "uuid"] }
 chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.11", features = ["v7", "serde"] }
 thiserror = "2"
 validator = { version = "0.20", features = ["derive"] }
 async-trait = "0.1"
