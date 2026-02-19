@@ -1,4 +1,7 @@
 pub mod data_api_auth_headers_resource;
+pub mod data_api_column_access_metadata_update_request_resource;
 pub mod data_api_error_response_resource;
 pub mod data_api_list_rows_query_resource;
 pub mod data_api_payload_resource;
+pub mod data_api_table_access_catalog_resource;
+pub mod data_api_table_access_metadata_update_request_resource;

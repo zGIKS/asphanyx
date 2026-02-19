@@ -1,2 +1,3 @@
+pub mod change_provisioned_database_password_command;
 pub mod create_provisioned_database_command;
 pub mod delete_provisioned_database_command;

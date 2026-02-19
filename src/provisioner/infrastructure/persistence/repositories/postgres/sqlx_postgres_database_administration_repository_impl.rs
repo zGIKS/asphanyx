@@ -144,4 +144,18 @@ impl PostgresDatabaseAdministrationRepository for SqlxPostgresDatabaseAdministra
     ) -> Result<(), ProvisionerDomainError> {
         self.delete_database_stack(database_name, username).await
     }
+
+    async fn change_database_user_password(
+        &self,
+        username: &DatabaseUsername,
+        password: &DatabasePassword,
+    ) -> Result<(), ProvisionerDomainError> {
+        let user_identifier = username.value();
+        let escaped_password = password.value().replace('\'', "''");
+
+        self.run_statement(&format!(
+            "ALTER ROLE {user_identifier} WITH PASSWORD '{escaped_password}'"
+        ))
+        .await
+    }
 }

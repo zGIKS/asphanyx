@@ -1,7 +1,4 @@
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
+use std::sync::Arc;
 
 use swagger_axum_api::data_api::application::{
     command_services::data_api_command_service_impl::DataApiCommandServiceImpl,
@@ -35,25 +32,13 @@ pub fn create_command_harness(allowed_tables: &[&str]) -> DataApiCommandHarness 
     let access_control = Arc::new(FakeAccessControlFacade::new());
     let audit = Arc::new(FakeDataApiAuditLogRepository::new());
 
-    let editable_columns = HashMap::from([(
-        "productos".to_string(),
-        HashSet::from([
-            "nombre".to_string(),
-            "precio".to_string(),
-            "image_url".to_string(),
-        ]),
-    )]);
+    repository.set_table_exposed(allowed_tables.contains(&"productos"));
 
     let service = DataApiCommandServiceImpl::new(
         repository.clone(),
         tenant_schema_resolver.clone(),
         access_control.clone(),
         audit.clone(),
-        allowed_tables
-            .iter()
-            .map(|table| table.to_string())
-            .collect(),
-        editable_columns,
     );
 
     DataApiCommandHarness {
@@ -71,15 +56,13 @@ pub fn create_query_harness(allowed_tables: &[&str]) -> DataApiQueryHarness {
     let access_control = Arc::new(FakeAccessControlFacade::new());
     let audit = Arc::new(FakeDataApiAuditLogRepository::new());
 
+    repository.set_table_exposed(allowed_tables.contains(&"productos"));
+
     let service = DataApiQueryServiceImpl::new(
         repository.clone(),
         tenant_schema_resolver.clone(),
         access_control.clone(),
         audit.clone(),
-        allowed_tables
-            .iter()
-            .map(|table| table.to_string())
-            .collect(),
     );
 
     DataApiQueryHarness {

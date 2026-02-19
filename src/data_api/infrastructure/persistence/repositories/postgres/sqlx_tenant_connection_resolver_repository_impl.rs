@@ -31,7 +31,7 @@ impl TenantConnectionResolverRepository for SqlxTenantConnectionResolverReposito
         let statement = r#"
             SELECT database_name, status
             FROM provisioned_databases
-            WHERE database_name = $1
+            WHERE id = $1
         "#;
 
         let row = sqlx::query(statement)

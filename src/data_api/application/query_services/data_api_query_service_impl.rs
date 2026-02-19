@@ -1,8 +1,9 @@
-use std::{collections::HashSet, sync::Arc};
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::Utc;
 use serde_json::{Value, json};
+use uuid::Uuid;
 
 use crate::data_api::{
     domain::{
@@ -22,7 +23,7 @@ use crate::data_api::{
         tenant_schema_resolver_repository::TenantSchemaResolverRepository,
     },
     interfaces::acl::access_control_facade::{
-        AccessControlFacade, DataApiAuthorizationCheckRequest,
+        AccessControlFacade, DataApiAuthorizationBootstrapRequest, DataApiAuthorizationCheckRequest,
     },
 };
 
@@ -31,11 +32,10 @@ pub struct DataApiQueryServiceImpl {
     tenant_schema_resolver: Arc<dyn TenantSchemaResolverRepository>,
     access_control_facade: Arc<dyn AccessControlFacade>,
     audit_log_repository: Arc<dyn DataApiAuditLogRepository>,
-    allowed_tables: HashSet<String>,
 }
 
 struct AuditContext<'a> {
-    tenant_id: &'a str,
+    tenant_id: Uuid,
     request_id: Option<String>,
     schema_name: &'a str,
     table_name: &'a str,
@@ -52,20 +52,39 @@ impl DataApiQueryServiceImpl {
         tenant_schema_resolver: Arc<dyn TenantSchemaResolverRepository>,
         access_control_facade: Arc<dyn AccessControlFacade>,
         audit_log_repository: Arc<dyn DataApiAuditLogRepository>,
-        allowed_tables: HashSet<String>,
     ) -> Self {
         Self {
             repository,
             tenant_schema_resolver,
             access_control_facade,
             audit_log_repository,
-            allowed_tables,
         }
     }
 
-    fn ensure_table_allowed(&self, table_name: &str) -> Result<(), DataApiDomainError> {
-        if self.allowed_tables.is_empty() || !self.allowed_tables.contains(table_name) {
+    fn ensure_action_allowed(
+        action_enabled: bool,
+        table_exposed: bool,
+    ) -> Result<(), DataApiDomainError> {
+        if !table_exposed || !action_enabled {
             return Err(DataApiDomainError::TableNotAllowed);
+        }
+
+        Ok(())
+    }
+
+    async fn enforce_acl_if_required(
+        &self,
+        authorization_mode: &str,
+        bootstrap_request: DataApiAuthorizationBootstrapRequest,
+        request: DataApiAuthorizationCheckRequest,
+    ) -> Result<(), DataApiDomainError> {
+        if authorization_mode.eq_ignore_ascii_case("acl") {
+            self.access_control_facade
+                .bootstrap_table_access(bootstrap_request)
+                .await?;
+            self.access_control_facade
+                .check_table_permission(request)
+                .await?;
         }
 
         Ok(())
@@ -75,7 +94,7 @@ impl DataApiQueryServiceImpl {
         let _ = self
             .audit_log_repository
             .save_event(&DataApiRequestAuditedEvent {
-                tenant_id: context.tenant_id.to_string(),
+                tenant_id: context.tenant_id,
                 request_id: context.request_id,
                 schema_name: context.schema_name.to_string(),
                 table_name: context.table_name.to_string(),
@@ -93,12 +112,25 @@ impl DataApiQueryServiceImpl {
 #[async_trait]
 impl DataApiQueryService for DataApiQueryServiceImpl {
     async fn handle_list(&self, query: ListRowsQuery) -> Result<Value, DataApiDomainError> {
-        self.ensure_table_allowed(query.table_name().value())?;
-
         let schema_name = self
             .tenant_schema_resolver
             .resolve_schema(query.tenant_id(), Some(query.schema_name().value()))
             .await?;
+
+        self.repository
+            .synchronize_metadata(query.tenant_id(), schema_name.value())
+            .await?;
+
+        let access_metadata = self
+            .repository
+            .get_table_access_metadata(
+                query.tenant_id(),
+                schema_name.value(),
+                query.table_name().value(),
+            )
+            .await?;
+
+        Self::ensure_action_allowed(access_metadata.read_enabled, access_metadata.exposed)?;
 
         let metadata = self
             .repository
@@ -136,8 +168,27 @@ impl DataApiQueryService for DataApiQueryServiceImpl {
             .filter(|column| metadata.has_column(column))
             .map(str::to_string);
 
-        self.access_control_facade
-            .check_table_permission(DataApiAuthorizationCheckRequest {
+        self.enforce_acl_if_required(
+            &access_metadata.authorization_mode,
+            DataApiAuthorizationBootstrapRequest {
+                tenant_id: query.tenant_id().value().to_string(),
+                principal_id: query.principal().to_string(),
+                resource_name: query.table_name().value().to_string(),
+                readable_columns: metadata
+                    .columns
+                    .iter()
+                    .map(|column| column.column_name.clone())
+                    .collect(),
+                writable_columns: self
+                    .repository
+                    .list_writable_columns(
+                        query.tenant_id(),
+                        schema_name.value(),
+                        query.table_name().value(),
+                    )
+                    .await?,
+            },
+            DataApiAuthorizationCheckRequest {
                 tenant_id: query.tenant_id().value().to_string(),
                 principal_id: query.principal().to_string(),
                 resource_name: query.table_name().value().to_string(),
@@ -146,8 +197,9 @@ impl DataApiQueryService for DataApiQueryServiceImpl {
                 subject_owner_id: query.subject_owner_id().map(str::to_string),
                 row_owner_id: query.row_owner_id().map(str::to_string),
                 request_id: query.request_id().map(str::to_string),
-            })
-            .await?;
+            },
+        )
+        .await?;
 
         let result = self
             .repository
@@ -201,12 +253,25 @@ impl DataApiQueryService for DataApiQueryServiceImpl {
     }
 
     async fn handle_get(&self, query: GetRowQuery) -> Result<Value, DataApiDomainError> {
-        self.ensure_table_allowed(query.table_name().value())?;
-
         let schema_name = self
             .tenant_schema_resolver
             .resolve_schema(query.tenant_id(), Some(query.schema_name().value()))
             .await?;
+
+        self.repository
+            .synchronize_metadata(query.tenant_id(), schema_name.value())
+            .await?;
+
+        let access_metadata = self
+            .repository
+            .get_table_access_metadata(
+                query.tenant_id(),
+                schema_name.value(),
+                query.table_name().value(),
+            )
+            .await?;
+
+        Self::ensure_action_allowed(access_metadata.read_enabled, access_metadata.exposed)?;
 
         let metadata = self
             .repository
@@ -221,8 +286,27 @@ impl DataApiQueryService for DataApiQueryServiceImpl {
             .primary_key_column()
             .ok_or(DataApiDomainError::PrimaryKeyNotFound)?;
 
-        self.access_control_facade
-            .check_table_permission(DataApiAuthorizationCheckRequest {
+        self.enforce_acl_if_required(
+            &access_metadata.authorization_mode,
+            DataApiAuthorizationBootstrapRequest {
+                tenant_id: query.tenant_id().value().to_string(),
+                principal_id: query.principal().to_string(),
+                resource_name: query.table_name().value().to_string(),
+                readable_columns: metadata
+                    .columns
+                    .iter()
+                    .map(|column| column.column_name.clone())
+                    .collect(),
+                writable_columns: self
+                    .repository
+                    .list_writable_columns(
+                        query.tenant_id(),
+                        schema_name.value(),
+                        query.table_name().value(),
+                    )
+                    .await?,
+            },
+            DataApiAuthorizationCheckRequest {
                 tenant_id: query.tenant_id().value().to_string(),
                 principal_id: query.principal().to_string(),
                 resource_name: query.table_name().value().to_string(),
@@ -231,8 +315,9 @@ impl DataApiQueryService for DataApiQueryServiceImpl {
                 subject_owner_id: query.subject_owner_id().map(str::to_string),
                 row_owner_id: query.row_owner_id().map(str::to_string),
                 request_id: query.request_id().map(str::to_string),
-            })
-            .await?;
+            },
+        )
+        .await?;
 
         match self
             .repository
@@ -299,15 +384,36 @@ impl DataApiQueryService for DataApiQueryServiceImpl {
         &self,
         query: TableSchemaIntrospectionQuery,
     ) -> Result<Value, DataApiDomainError> {
-        self.ensure_table_allowed(query.table_name().value())?;
-
         let schema_name = self
             .tenant_schema_resolver
             .resolve_schema(query.tenant_id(), Some(query.schema_name().value()))
             .await?;
 
-        self.access_control_facade
-            .check_table_permission(DataApiAuthorizationCheckRequest {
+        self.repository
+            .synchronize_metadata(query.tenant_id(), schema_name.value())
+            .await?;
+
+        let access_metadata = self
+            .repository
+            .get_table_access_metadata(
+                query.tenant_id(),
+                schema_name.value(),
+                query.table_name().value(),
+            )
+            .await?;
+
+        Self::ensure_action_allowed(access_metadata.introspect_enabled, access_metadata.exposed)?;
+
+        self.enforce_acl_if_required(
+            &access_metadata.authorization_mode,
+            DataApiAuthorizationBootstrapRequest {
+                tenant_id: query.tenant_id().value().to_string(),
+                principal_id: query.principal().to_string(),
+                resource_name: query.table_name().value().to_string(),
+                readable_columns: vec![],
+                writable_columns: vec![],
+            },
+            DataApiAuthorizationCheckRequest {
                 tenant_id: query.tenant_id().value().to_string(),
                 principal_id: query.principal().to_string(),
                 resource_name: query.table_name().value().to_string(),
@@ -316,8 +422,9 @@ impl DataApiQueryService for DataApiQueryServiceImpl {
                 subject_owner_id: query.subject_owner_id().map(str::to_string),
                 row_owner_id: query.row_owner_id().map(str::to_string),
                 request_id: query.request_id().map(str::to_string),
-            })
-            .await?;
+            },
+        )
+        .await?;
 
         let metadata = self
             .repository

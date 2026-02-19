@@ -23,7 +23,7 @@ async fn handle_create_succeeds_and_persists_active_status() {
             ProvisionedDatabaseStatus::Active,
         ]
     );
-    assert_eq!(harness.postgres_repository.stats(), (1, 0, 0));
+    assert_eq!(harness.postgres_repository.stats(), (1, 0, 0, 0));
     assert_eq!(
         harness.audit_repository.saved_event_names(),
         vec![
@@ -48,7 +48,7 @@ async fn handle_create_returns_error_when_database_already_exists() {
         Err(ProvisionerDomainError::DatabaseAlreadyProvisioned)
     ));
     assert!(harness.metadata_repository.saved_statuses().is_empty());
-    assert_eq!(harness.postgres_repository.stats(), (0, 0, 0));
+    assert_eq!(harness.postgres_repository.stats(), (0, 0, 0, 0));
     assert!(harness.audit_repository.saved_event_names().is_empty());
 }
 
@@ -69,7 +69,7 @@ async fn handle_create_marks_failed_and_rolls_back_when_infra_fails() {
             ProvisionedDatabaseStatus::Failed,
         ]
     );
-    assert_eq!(harness.postgres_repository.stats(), (1, 0, 1));
+    assert_eq!(harness.postgres_repository.stats(), (1, 0, 1, 0));
     assert_eq!(
         harness.audit_repository.saved_event_names(),
         vec![

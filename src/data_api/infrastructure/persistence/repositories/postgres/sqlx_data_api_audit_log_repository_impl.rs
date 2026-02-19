@@ -42,7 +42,7 @@ impl DataApiAuditLogRepository for SqlxDataApiAuditLogRepositoryImpl {
         "#;
 
         sqlx::query(statement)
-            .bind(&event.tenant_id)
+            .bind(event.tenant_id)
             .bind(&event.request_id)
             .bind(&event.schema_name)
             .bind(&event.table_name)

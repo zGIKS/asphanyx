@@ -14,10 +14,24 @@ pub struct DataApiAuthorizationCheckRequest {
     pub request_id: Option<String>,
 }
 
+#[derive(Clone, Debug)]
+pub struct DataApiAuthorizationBootstrapRequest {
+    pub tenant_id: String,
+    pub principal_id: String,
+    pub resource_name: String,
+    pub readable_columns: Vec<String>,
+    pub writable_columns: Vec<String>,
+}
+
 #[async_trait]
 pub trait AccessControlFacade: Send + Sync {
     async fn check_table_permission(
         &self,
         request: DataApiAuthorizationCheckRequest,
+    ) -> Result<(), DataApiDomainError>;
+
+    async fn bootstrap_table_access(
+        &self,
+        request: DataApiAuthorizationBootstrapRequest,
     ) -> Result<(), DataApiDomainError>;
 }

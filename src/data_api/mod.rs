@@ -1,7 +1,4 @@
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
+use std::sync::Arc;
 
 use axum::Router;
 use sqlx::PgPool;
@@ -10,6 +7,7 @@ use crate::{
     access_control::{
         application::{
             acl::access_control_facade_impl::AccessControlFacadeImpl,
+            command_services::access_control_command_service_impl::AccessControlCommandServiceImpl,
             query_services::access_control_query_service_impl::AccessControlQueryServiceImpl,
         },
         infrastructure::persistence::repositories::postgres::{
@@ -54,6 +52,7 @@ pub async fn build_data_api_router(config: &AppConfig) -> Result<Router, String>
     ));
     let tenant_pool_cache = Arc::new(SqlxTenantPoolCacheRepositoryImpl::new());
     let repository = Arc::new(SqlxDataApiRepositoryImpl::new(
+        admin_pool.clone(),
         tenant_connection_resolver,
         tenant_pool_cache,
     ));
@@ -66,72 +65,34 @@ pub async fn build_data_api_router(config: &AppConfig) -> Result<Router, String>
         admin_pool,
     ));
     let acl_query_service = Arc::new(AccessControlQueryServiceImpl::new(
-        acl_policy_repository,
-        acl_role_assignment_repository,
+        acl_policy_repository.clone(),
+        acl_role_assignment_repository.clone(),
         acl_audit_repository,
     ));
+    let acl_command_service = Arc::new(AccessControlCommandServiceImpl::new(
+        acl_role_assignment_repository.clone(),
+        acl_policy_repository.clone(),
+    ));
     let access_control_facade = Arc::new(AccessControlFacadeRealImpl::new(Arc::new(
-        AccessControlFacadeImpl::new(acl_query_service),
+        AccessControlFacadeImpl::new(acl_command_service, acl_query_service),
     )));
-
-    let allowed_tables = read_allowed_tables();
-    let editable_columns = read_editable_columns();
 
     let command_service = Arc::new(DataApiCommandServiceImpl::new(
         repository.clone(),
         tenant_schema_resolver.clone(),
         access_control_facade.clone(),
         audit_log_repository.clone(),
-        allowed_tables.clone(),
-        editable_columns.clone(),
     ));
     let query_service = Arc::new(DataApiQueryServiceImpl::new(
-        repository,
+        repository.clone(),
         tenant_schema_resolver,
         access_control_facade,
         audit_log_repository,
-        allowed_tables,
     ));
 
     Ok(router(DataApiRestControllerState {
         command_service,
         query_service,
+        repository,
     }))
-}
-
-fn read_allowed_tables() -> HashSet<String> {
-    std::env::var("DATA_API_ALLOWLIST_TABLES")
-        .ok()
-        .map(|raw| {
-            raw.split(',')
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .map(|s| s.to_string())
-                .collect::<HashSet<_>>()
-        })
-        .unwrap_or_default()
-}
-
-fn read_editable_columns() -> HashMap<String, HashSet<String>> {
-    std::env::var("DATA_API_EDITABLE_COLUMNS")
-        .ok()
-        .map(|raw| {
-            raw.split(',')
-                .filter_map(|entry| {
-                    let (table, columns) = entry.split_once(':')?;
-                    let cols = columns
-                        .split('|')
-                        .map(str::trim)
-                        .filter(|c| !c.is_empty())
-                        .map(|c| c.to_string())
-                        .collect::<HashSet<_>>();
-                    if table.trim().is_empty() {
-                        None
-                    } else {
-                        Some((table.trim().to_string(), cols))
-                    }
-                })
-                .collect::<HashMap<_, _>>()
-        })
-        .unwrap_or_default()
 }

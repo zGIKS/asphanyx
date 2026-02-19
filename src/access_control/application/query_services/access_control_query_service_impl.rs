@@ -296,8 +296,8 @@ impl AccessControlQueryServiceImpl {
         let _ = self
             .decision_audit_repository
             .save_decision(&AuthorizationDecisionAuditedEvent {
-                tenant_id: query.tenant_id().value().to_string(),
-                principal_id: query.principal_id().value().to_string(),
+                tenant_id: query.tenant_id().value(),
+                principal_id: query.principal_id().value(),
                 request_id: query.request_id().map(str::to_string),
                 resource_name: query.resource_name().value().to_string(),
                 action_name: query.action_name().value().to_string(),

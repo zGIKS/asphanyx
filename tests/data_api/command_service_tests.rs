@@ -5,7 +5,7 @@ use swagger_axum_api::data_api::domain::{
 };
 
 use crate::support::{
-    create_command_harness, create_row_command, patch_row_command, sample_payload,
+    create_command_harness, create_row_command, fixtures, patch_row_command, sample_payload,
 };
 
 #[tokio::test]
@@ -22,7 +22,7 @@ async fn handle_create_routes_to_tenant_and_audits_success() {
     assert_eq!(harness.repository.create_calls(), 1);
     assert_eq!(
         harness.repository.last_tenant_for_create().as_deref(),
-        Some("tienda1")
+        Some(fixtures::TENANT_1_ID)
     );
     assert_eq!(harness.tenant_schema_resolver.calls(), 1);
 
@@ -30,7 +30,7 @@ async fn handle_create_routes_to_tenant_and_audits_success() {
     assert_eq!(acl_calls.len(), 1);
     assert_eq!(acl_calls[0].action_name, "create");
     assert_eq!(acl_calls[0].table_name, "productos");
-    assert_eq!(acl_calls[0].tenant_id, "tienda1");
+    assert_eq!(acl_calls[0].tenant_id, fixtures::TENANT_1_ID);
     assert_eq!(acl_calls[0].principal, "api-key-test");
     assert_eq!(acl_calls[0].request_id.as_deref(), Some("req-1"));
     assert_eq!(acl_calls[0].subject_owner_id.as_deref(), Some("owner-1"));

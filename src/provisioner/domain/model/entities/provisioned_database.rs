@@ -6,41 +6,53 @@ use crate::provisioner::domain::model::{
         provisioner_domain_error::ProvisionerDomainError,
     },
     value_objects::{
-        database_username::DatabaseUsername, provisioned_database_name::ProvisionedDatabaseName,
+        database_password_hash::DatabasePasswordHash, database_username::DatabaseUsername,
+        provisioned_database_id::ProvisionedDatabaseId,
+        provisioned_database_name::ProvisionedDatabaseName,
     },
 };
 
 #[derive(Clone, Debug)]
 pub struct ProvisionedDatabase {
+    id: ProvisionedDatabaseId,
     database_name: ProvisionedDatabaseName,
     username: DatabaseUsername,
+    password_hash: DatabasePasswordHash,
     status: ProvisionedDatabaseStatus,
     created_at: DateTime<Utc>,
 }
 
 impl ProvisionedDatabase {
     pub fn new_provisioning(
+        id: ProvisionedDatabaseId,
         database_name: ProvisionedDatabaseName,
         username: DatabaseUsername,
+        password_hash: DatabasePasswordHash,
         created_at: DateTime<Utc>,
     ) -> Self {
         Self {
+            id,
             database_name,
             username,
+            password_hash,
             status: ProvisionedDatabaseStatus::Provisioning,
             created_at,
         }
     }
 
     pub fn restore(
+        id: ProvisionedDatabaseId,
         database_name: ProvisionedDatabaseName,
         username: DatabaseUsername,
+        password_hash: DatabasePasswordHash,
         status: ProvisionedDatabaseStatus,
         created_at: DateTime<Utc>,
     ) -> Self {
         Self {
+            id,
             database_name,
             username,
+            password_hash,
             status,
             created_at,
         }
@@ -76,8 +88,16 @@ impl ProvisionedDatabase {
         Ok(())
     }
 
+    pub fn update_password_hash(&mut self, password_hash: DatabasePasswordHash) {
+        self.password_hash = password_hash;
+    }
+
     pub fn database_name(&self) -> &ProvisionedDatabaseName {
         &self.database_name
+    }
+
+    pub fn id(&self) -> &ProvisionedDatabaseId {
+        &self.id
     }
 
     pub fn username(&self) -> &DatabaseUsername {
@@ -86,6 +106,10 @@ impl ProvisionedDatabase {
 
     pub fn status(&self) -> ProvisionedDatabaseStatus {
         self.status
+    }
+
+    pub fn password_hash(&self) -> &DatabasePasswordHash {
+        &self.password_hash
     }
 
     pub fn created_at(&self) -> DateTime<Utc> {

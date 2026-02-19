@@ -13,10 +13,13 @@ use swagger_axum_api::data_api::domain::model::{
     },
 };
 
+// UUID de tenant de prueba
+pub const TENANT_1_ID: &str = "11111111-2222-7333-4444-555555555555";
+
 pub fn create_row_command(payload: Value) -> CreateRowCommand {
     CreateRowCommand::new(CreateRowCommandParts {
         api_version: "v1".to_string(),
-        tenant_id: "tienda1".to_string(),
+        tenant_id: TENANT_1_ID.to_string(),
         schema_name: "public".to_string(),
         table_name: "productos".to_string(),
         principal: "api-key-test".to_string(),
@@ -32,7 +35,7 @@ pub fn create_row_command(payload: Value) -> CreateRowCommand {
 pub fn patch_row_command(payload: Value) -> PatchRowCommand {
     PatchRowCommand::new(PatchRowCommandParts {
         api_version: "v1".to_string(),
-        tenant_id: "tienda1".to_string(),
+        tenant_id: TENANT_1_ID.to_string(),
         schema_name: "public".to_string(),
         table_name: "productos".to_string(),
         row_identifier: "1".to_string(),
@@ -54,7 +57,7 @@ pub fn list_rows_query() -> ListRowsQuery {
 
     ListRowsQuery::new(ListRowsQueryParts {
         api_version: "v1".to_string(),
-        tenant_id: "tienda1".to_string(),
+        tenant_id: TENANT_1_ID.to_string(),
         schema_name: "public".to_string(),
         table_name: "productos".to_string(),
         principal: "api-key-test".to_string(),
@@ -75,7 +78,7 @@ pub fn list_rows_query() -> ListRowsQuery {
 pub fn get_row_query() -> GetRowQuery {
     GetRowQuery::new(GetRowQueryParts {
         api_version: "v1".to_string(),
-        tenant_id: "tienda1".to_string(),
+        tenant_id: TENANT_1_ID.to_string(),
         schema_name: "public".to_string(),
         table_name: "productos".to_string(),
         row_identifier: "1".to_string(),

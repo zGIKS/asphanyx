@@ -1,11 +1,9 @@
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
+use std::{collections::HashSet, sync::Arc};
 
 use async_trait::async_trait;
 use chrono::Utc;
 use serde_json::{Map, Value};
+use uuid::Uuid;
 
 use crate::data_api::{
     domain::{
@@ -26,8 +24,9 @@ use crate::data_api::{
         },
         tenant_schema_resolver_repository::TenantSchemaResolverRepository,
     },
-    interfaces::acl::access_control_facade::AccessControlFacade,
-    interfaces::acl::access_control_facade::DataApiAuthorizationCheckRequest,
+    interfaces::acl::access_control_facade::{
+        AccessControlFacade, DataApiAuthorizationBootstrapRequest, DataApiAuthorizationCheckRequest,
+    },
 };
 
 const MAX_PAYLOAD_BYTES: usize = 64 * 1024;
@@ -37,12 +36,10 @@ pub struct DataApiCommandServiceImpl {
     tenant_schema_resolver: Arc<dyn TenantSchemaResolverRepository>,
     access_control_facade: Arc<dyn AccessControlFacade>,
     audit_log_repository: Arc<dyn DataApiAuditLogRepository>,
-    allowed_tables: HashSet<String>,
-    editable_columns: HashMap<String, HashSet<String>>,
 }
 
 struct AuditContext<'a> {
-    tenant_id: &'a str,
+    tenant_id: Uuid,
     request_id: Option<String>,
     schema_name: &'a str,
     table_name: &'a str,
@@ -59,21 +56,20 @@ impl DataApiCommandServiceImpl {
         tenant_schema_resolver: Arc<dyn TenantSchemaResolverRepository>,
         access_control_facade: Arc<dyn AccessControlFacade>,
         audit_log_repository: Arc<dyn DataApiAuditLogRepository>,
-        allowed_tables: HashSet<String>,
-        editable_columns: HashMap<String, HashSet<String>>,
     ) -> Self {
         Self {
             repository,
             tenant_schema_resolver,
             access_control_facade,
             audit_log_repository,
-            allowed_tables,
-            editable_columns,
         }
     }
 
-    fn ensure_table_allowed(&self, table_name: &str) -> Result<(), DataApiDomainError> {
-        if self.allowed_tables.is_empty() || !self.allowed_tables.contains(table_name) {
+    fn ensure_action_allowed(
+        action_enabled: bool,
+        table_exposed: bool,
+    ) -> Result<(), DataApiDomainError> {
+        if !table_exposed || !action_enabled {
             return Err(DataApiDomainError::TableNotAllowed);
         }
 
@@ -97,15 +93,9 @@ impl DataApiCommandServiceImpl {
     }
 
     fn ensure_editable_columns(
-        &self,
-        table_name: &str,
+        editable: &HashSet<String>,
         payload_columns: &[String],
     ) -> Result<(), DataApiDomainError> {
-        let editable = self
-            .editable_columns
-            .get(table_name)
-            .ok_or(DataApiDomainError::AccessDenied)?;
-
         for column in payload_columns {
             if !editable.contains(column) {
                 return Err(DataApiDomainError::NonEditableColumn(column.clone()));
@@ -131,7 +121,7 @@ impl DataApiCommandServiceImpl {
         let _ = self
             .audit_log_repository
             .save_event(&DataApiRequestAuditedEvent {
-                tenant_id: context.tenant_id.to_string(),
+                tenant_id: context.tenant_id,
                 request_id: context.request_id,
                 schema_name: context.schema_name.to_string(),
                 table_name: context.table_name.to_string(),
@@ -144,21 +134,63 @@ impl DataApiCommandServiceImpl {
             })
             .await;
     }
+
+    async fn enforce_acl_if_required(
+        &self,
+        authorization_mode: &str,
+        bootstrap_request: DataApiAuthorizationBootstrapRequest,
+        request: DataApiAuthorizationCheckRequest,
+    ) -> Result<(), DataApiDomainError> {
+        if authorization_mode.eq_ignore_ascii_case("acl") {
+            self.access_control_facade
+                .bootstrap_table_access(bootstrap_request)
+                .await?;
+            self.access_control_facade
+                .check_table_permission(request)
+                .await?;
+        }
+
+        Ok(())
+    }
 }
 
 #[async_trait]
 impl DataApiCommandService for DataApiCommandServiceImpl {
     async fn handle_create(&self, command: CreateRowCommand) -> Result<Value, DataApiDomainError> {
-        self.ensure_table_allowed(command.table_name().value())?;
         Self::ensure_payload_size(command.payload())?;
-
-        let requested_columns = Self::payload_columns(command.payload())?;
-        self.ensure_editable_columns(command.table_name().value(), &requested_columns)?;
 
         let schema_name = self
             .tenant_schema_resolver
             .resolve_schema(command.tenant_id(), Some(command.schema_name().value()))
             .await?;
+
+        self.repository
+            .synchronize_metadata(command.tenant_id(), schema_name.value())
+            .await?;
+
+        let access_metadata = self
+            .repository
+            .get_table_access_metadata(
+                command.tenant_id(),
+                schema_name.value(),
+                command.table_name().value(),
+            )
+            .await?;
+
+        Self::ensure_action_allowed(access_metadata.create_enabled, access_metadata.exposed)?;
+
+        let requested_columns = Self::payload_columns(command.payload())?;
+        let writable_columns = self
+            .repository
+            .list_writable_columns(
+                command.tenant_id(),
+                schema_name.value(),
+                command.table_name().value(),
+            )
+            .await?
+            .into_iter()
+            .collect::<HashSet<_>>();
+        Self::ensure_editable_columns(&writable_columns, &requested_columns)?;
 
         let metadata = self
             .repository
@@ -174,8 +206,20 @@ impl DataApiCommandService for DataApiCommandServiceImpl {
             .filter(|column| metadata.has_column(column))
             .collect::<Vec<_>>();
 
-        self.access_control_facade
-            .check_table_permission(DataApiAuthorizationCheckRequest {
+        self.enforce_acl_if_required(
+            &access_metadata.authorization_mode,
+            DataApiAuthorizationBootstrapRequest {
+                tenant_id: command.tenant_id().value().to_string(),
+                principal_id: command.principal().to_string(),
+                resource_name: command.table_name().value().to_string(),
+                readable_columns: metadata
+                    .columns
+                    .iter()
+                    .map(|column| column.column_name.clone())
+                    .collect(),
+                writable_columns: writable_columns.iter().cloned().collect(),
+            },
+            DataApiAuthorizationCheckRequest {
                 tenant_id: command.tenant_id().value().to_string(),
                 principal_id: command.principal().to_string(),
                 resource_name: command.table_name().value().to_string(),
@@ -184,8 +228,9 @@ impl DataApiCommandService for DataApiCommandServiceImpl {
                 subject_owner_id: command.subject_owner_id().map(str::to_string),
                 row_owner_id: command.row_owner_id().map(str::to_string),
                 request_id: command.request_id().map(str::to_string),
-            })
-            .await?;
+            },
+        )
+        .await?;
 
         let filtered_payload = Self::filter_allowed_payload(command.payload(), &allowed_columns);
         let result = self
@@ -236,16 +281,40 @@ impl DataApiCommandService for DataApiCommandServiceImpl {
     }
 
     async fn handle_patch(&self, command: PatchRowCommand) -> Result<Value, DataApiDomainError> {
-        self.ensure_table_allowed(command.table_name().value())?;
         Self::ensure_payload_size(command.payload())?;
-
-        let requested_columns = Self::payload_columns(command.payload())?;
-        self.ensure_editable_columns(command.table_name().value(), &requested_columns)?;
 
         let schema_name = self
             .tenant_schema_resolver
             .resolve_schema(command.tenant_id(), Some(command.schema_name().value()))
             .await?;
+
+        self.repository
+            .synchronize_metadata(command.tenant_id(), schema_name.value())
+            .await?;
+
+        let access_metadata = self
+            .repository
+            .get_table_access_metadata(
+                command.tenant_id(),
+                schema_name.value(),
+                command.table_name().value(),
+            )
+            .await?;
+
+        Self::ensure_action_allowed(access_metadata.update_enabled, access_metadata.exposed)?;
+
+        let requested_columns = Self::payload_columns(command.payload())?;
+        let writable_columns = self
+            .repository
+            .list_writable_columns(
+                command.tenant_id(),
+                schema_name.value(),
+                command.table_name().value(),
+            )
+            .await?
+            .into_iter()
+            .collect::<HashSet<_>>();
+        Self::ensure_editable_columns(&writable_columns, &requested_columns)?;
 
         let metadata = self
             .repository
@@ -265,8 +334,20 @@ impl DataApiCommandService for DataApiCommandServiceImpl {
             .filter(|column| metadata.has_column(column) && column != &primary_key.column_name)
             .collect::<Vec<_>>();
 
-        self.access_control_facade
-            .check_table_permission(DataApiAuthorizationCheckRequest {
+        self.enforce_acl_if_required(
+            &access_metadata.authorization_mode,
+            DataApiAuthorizationBootstrapRequest {
+                tenant_id: command.tenant_id().value().to_string(),
+                principal_id: command.principal().to_string(),
+                resource_name: command.table_name().value().to_string(),
+                readable_columns: metadata
+                    .columns
+                    .iter()
+                    .map(|column| column.column_name.clone())
+                    .collect(),
+                writable_columns: writable_columns.iter().cloned().collect(),
+            },
+            DataApiAuthorizationCheckRequest {
                 tenant_id: command.tenant_id().value().to_string(),
                 principal_id: command.principal().to_string(),
                 resource_name: command.table_name().value().to_string(),
@@ -275,8 +356,9 @@ impl DataApiCommandService for DataApiCommandServiceImpl {
                 subject_owner_id: command.subject_owner_id().map(str::to_string),
                 row_owner_id: command.row_owner_id().map(str::to_string),
                 request_id: command.request_id().map(str::to_string),
-            })
-            .await?;
+            },
+        )
+        .await?;
 
         let filtered_payload = Self::filter_allowed_payload(command.payload(), &allowed_columns);
 
@@ -345,12 +427,25 @@ impl DataApiCommandService for DataApiCommandServiceImpl {
     }
 
     async fn handle_delete(&self, command: DeleteRowCommand) -> Result<(), DataApiDomainError> {
-        self.ensure_table_allowed(command.table_name().value())?;
-
         let schema_name = self
             .tenant_schema_resolver
             .resolve_schema(command.tenant_id(), Some(command.schema_name().value()))
             .await?;
+
+        self.repository
+            .synchronize_metadata(command.tenant_id(), schema_name.value())
+            .await?;
+
+        let access_metadata = self
+            .repository
+            .get_table_access_metadata(
+                command.tenant_id(),
+                schema_name.value(),
+                command.table_name().value(),
+            )
+            .await?;
+
+        Self::ensure_action_allowed(access_metadata.delete_enabled, access_metadata.exposed)?;
 
         let metadata = self
             .repository
@@ -365,8 +460,27 @@ impl DataApiCommandService for DataApiCommandServiceImpl {
             .primary_key_column()
             .ok_or(DataApiDomainError::PrimaryKeyNotFound)?;
 
-        self.access_control_facade
-            .check_table_permission(DataApiAuthorizationCheckRequest {
+        self.enforce_acl_if_required(
+            &access_metadata.authorization_mode,
+            DataApiAuthorizationBootstrapRequest {
+                tenant_id: command.tenant_id().value().to_string(),
+                principal_id: command.principal().to_string(),
+                resource_name: command.table_name().value().to_string(),
+                readable_columns: metadata
+                    .columns
+                    .iter()
+                    .map(|column| column.column_name.clone())
+                    .collect(),
+                writable_columns: self
+                    .repository
+                    .list_writable_columns(
+                        command.tenant_id(),
+                        schema_name.value(),
+                        command.table_name().value(),
+                    )
+                    .await?,
+            },
+            DataApiAuthorizationCheckRequest {
                 tenant_id: command.tenant_id().value().to_string(),
                 principal_id: command.principal().to_string(),
                 resource_name: command.table_name().value().to_string(),
@@ -375,8 +489,9 @@ impl DataApiCommandService for DataApiCommandServiceImpl {
                 subject_owner_id: command.subject_owner_id().map(str::to_string),
                 row_owner_id: command.row_owner_id().map(str::to_string),
                 request_id: command.request_id().map(str::to_string),
-            })
-            .await?;
+            },
+        )
+        .await?;
 
         match self
             .repository

@@ -11,7 +11,9 @@ use crate::provisioner::{
             provisioner_domain_error::ProvisionerDomainError,
         },
         value_objects::{
-            database_username::DatabaseUsername, provisioned_database_name::ProvisionedDatabaseName,
+            database_password_hash::DatabasePasswordHash, database_username::DatabaseUsername,
+            provisioned_database_id::ProvisionedDatabaseId,
+            provisioned_database_name::ProvisionedDatabaseName,
         },
     },
     infrastructure::persistence::repositories::provisioned_database_repository::ProvisionedDatabaseRepository,
@@ -30,7 +32,9 @@ impl SqlxProvisionedDatabaseRepositoryImpl {
         row: sqlx::postgres::PgRow,
     ) -> Result<ProvisionedDatabase, ProvisionerDomainError> {
         let database_name_raw: String = row.try_get("database_name").map_err(map_infra_error)?;
+        let id_raw: String = row.try_get("id").map_err(map_infra_error)?;
         let username_raw: String = row.try_get("username").map_err(map_infra_error)?;
+        let password_hash_raw: String = row.try_get("password_hash").map_err(map_infra_error)?;
         let status_raw: String = row.try_get("status").map_err(map_infra_error)?;
         let created_at: DateTime<Utc> = row.try_get("created_at").map_err(map_infra_error)?;
 
@@ -39,8 +43,10 @@ impl SqlxProvisionedDatabaseRepositoryImpl {
         })?;
 
         Ok(ProvisionedDatabase::restore(
+            ProvisionedDatabaseId::new(id_raw)?,
             ProvisionedDatabaseName::new(database_name_raw)?,
             DatabaseUsername::new(username_raw)?,
+            DatabasePasswordHash::new(password_hash_raw)?,
             status,
             created_at,
         ))
@@ -51,18 +57,21 @@ impl SqlxProvisionedDatabaseRepositoryImpl {
 impl ProvisionedDatabaseRepository for SqlxProvisionedDatabaseRepositoryImpl {
     async fn save(&self, database: &ProvisionedDatabase) -> Result<(), ProvisionerDomainError> {
         let statement = r#"
-            INSERT INTO provisioned_databases (database_name, username, status, created_at)
-            VALUES ($1, $2, $3, $4)
+            INSERT INTO provisioned_databases (id, database_name, username, password_hash, status, created_at)
+            VALUES ($1, $2, $3, $4, $5, $6)
             ON CONFLICT (database_name)
             DO UPDATE SET
                 username = EXCLUDED.username,
+                password_hash = EXCLUDED.password_hash,
                 status = EXCLUDED.status,
                 created_at = EXCLUDED.created_at
         "#;
 
         sqlx::query(statement)
+            .bind(database.id().value())
             .bind(database.database_name().value())
             .bind(database.username().value())
+            .bind(database.password_hash().value())
             .bind(database.status().as_str())
             .bind(database.created_at())
             .execute(&self.pool)
@@ -77,7 +86,7 @@ impl ProvisionedDatabaseRepository for SqlxProvisionedDatabaseRepositoryImpl {
         database_name: &ProvisionedDatabaseName,
     ) -> Result<Option<ProvisionedDatabase>, ProvisionerDomainError> {
         let statement = r#"
-            SELECT database_name, username, status, created_at
+            SELECT id::text AS id, database_name, username, password_hash, status, created_at
             FROM provisioned_databases
             WHERE database_name = $1
         "#;
@@ -93,7 +102,7 @@ impl ProvisionedDatabaseRepository for SqlxProvisionedDatabaseRepositoryImpl {
 
     async fn list_all(&self) -> Result<Vec<ProvisionedDatabase>, ProvisionerDomainError> {
         let statement = r#"
-            SELECT database_name, username, status, created_at
+            SELECT id::text AS id, database_name, username, password_hash, status, created_at
             FROM provisioned_databases
             ORDER BY created_at DESC
         "#;
@@ -110,7 +119,7 @@ impl ProvisionedDatabaseRepository for SqlxProvisionedDatabaseRepositoryImpl {
         &self,
     ) -> Result<Vec<ProvisionedDatabase>, ProvisionerDomainError> {
         let statement = r#"
-            SELECT database_name, username, status, created_at
+            SELECT id::text AS id, database_name, username, password_hash, status, created_at
             FROM provisioned_databases
             WHERE status IN ('active', 'failed')
             ORDER BY created_at DESC

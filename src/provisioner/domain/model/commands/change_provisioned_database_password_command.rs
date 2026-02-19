@@ -2,42 +2,32 @@ use crate::provisioner::domain::model::{
     enums::provisioner_domain_error::ProvisionerDomainError,
     value_objects::{
         database_password::DatabasePassword, database_password_hash::DatabasePasswordHash,
-        database_username::DatabaseUsername, provisioned_database_name::ProvisionedDatabaseName,
+        provisioned_database_name::ProvisionedDatabaseName,
     },
 };
 
 #[derive(Clone, Debug)]
-pub struct CreateProvisionedDatabaseCommand {
+pub struct ChangeProvisionedDatabasePasswordCommand {
     database_name: ProvisionedDatabaseName,
-    username: DatabaseUsername,
     password: DatabasePassword,
     password_hash: DatabasePasswordHash,
-    apply_seed_data: bool,
 }
 
-impl CreateProvisionedDatabaseCommand {
+impl ChangeProvisionedDatabasePasswordCommand {
     pub fn new(
         database_name: String,
-        username: String,
         password: String,
         password_hash: String,
-        apply_seed_data: bool,
     ) -> Result<Self, ProvisionerDomainError> {
         Ok(Self {
             database_name: ProvisionedDatabaseName::new(database_name)?,
-            username: DatabaseUsername::new(username)?,
             password: DatabasePassword::new(password)?,
             password_hash: DatabasePasswordHash::new(password_hash)?,
-            apply_seed_data,
         })
     }
 
     pub fn database_name(&self) -> &ProvisionedDatabaseName {
         &self.database_name
-    }
-
-    pub fn username(&self) -> &DatabaseUsername {
-        &self.username
     }
 
     pub fn password(&self) -> &DatabasePassword {
@@ -46,9 +36,5 @@ impl CreateProvisionedDatabaseCommand {
 
     pub fn password_hash(&self) -> &DatabasePasswordHash {
         &self.password_hash
-    }
-
-    pub fn apply_seed_data(&self) -> bool {
-        self.apply_seed_data
     }
 }

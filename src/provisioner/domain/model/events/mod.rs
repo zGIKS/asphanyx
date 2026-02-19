@@ -1,2 +1,3 @@
 pub mod provisioned_database_created_event;
 pub mod provisioned_database_deleted_event;
+pub mod provisioned_database_password_changed_event;

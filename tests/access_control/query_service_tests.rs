@@ -9,7 +9,7 @@ use swagger_axum_api::access_control::{
 };
 
 use crate::support::{
-    create_query_harness, evaluate_query, evaluate_query_with_columns,
+    TENANT_A_ID, create_query_harness, evaluate_query, evaluate_query_with_columns,
     evaluate_query_with_request_id,
 };
 
@@ -32,7 +32,7 @@ async fn evaluate_permission_allow_when_matching_allow_rule() {
     let harness = create_query_harness(Duration::from_secs(30));
     harness.role_repository.set_roles(vec!["admin".to_string()]);
     harness.policy_repository.set_rules(vec![PolicyRuleRecord {
-        tenant_id: "tenant_a".to_string(),
+        tenant_id: TENANT_A_ID.to_string(),
         role_name: "admin".to_string(),
         resource_name: "productos".to_string(),
         action_name: "read".to_string(),
@@ -58,7 +58,7 @@ async fn evaluate_permission_deny_wins_when_same_specificity_conflict() {
     harness.role_repository.set_roles(vec!["admin".to_string()]);
     harness.policy_repository.set_rules(vec![
         PolicyRuleRecord {
-            tenant_id: "tenant_a".to_string(),
+            tenant_id: TENANT_A_ID.to_string(),
             role_name: "admin".to_string(),
             resource_name: "productos".to_string(),
             action_name: "read".to_string(),
@@ -68,7 +68,7 @@ async fn evaluate_permission_deny_wins_when_same_specificity_conflict() {
             owner_scope: false,
         },
         PolicyRuleRecord {
-            tenant_id: "tenant_a".to_string(),
+            tenant_id: TENANT_A_ID.to_string(),
             role_name: "admin".to_string(),
             resource_name: "productos".to_string(),
             action_name: "read".to_string(),
@@ -95,7 +95,7 @@ async fn evaluate_permission_specific_allow_beats_wildcard_deny() {
     harness.role_repository.set_roles(vec!["admin".to_string()]);
     harness.policy_repository.set_rules(vec![
         PolicyRuleRecord {
-            tenant_id: "tenant_a".to_string(),
+            tenant_id: TENANT_A_ID.to_string(),
             role_name: "admin".to_string(),
             resource_name: "*".to_string(),
             action_name: "*".to_string(),
@@ -105,7 +105,7 @@ async fn evaluate_permission_specific_allow_beats_wildcard_deny() {
             owner_scope: false,
         },
         PolicyRuleRecord {
-            tenant_id: "tenant_a".to_string(),
+            tenant_id: TENANT_A_ID.to_string(),
             role_name: "admin".to_string(),
             resource_name: "productos".to_string(),
             action_name: "read".to_string(),
@@ -133,7 +133,7 @@ async fn evaluate_permission_denies_when_requested_column_is_denied() {
         .role_repository
         .set_roles(vec!["editor".to_string()]);
     harness.policy_repository.set_rules(vec![PolicyRuleRecord {
-        tenant_id: "tenant_a".to_string(),
+        tenant_id: TENANT_A_ID.to_string(),
         role_name: "editor".to_string(),
         resource_name: "productos".to_string(),
         action_name: "read".to_string(),
@@ -158,7 +158,7 @@ async fn evaluate_permission_caches_decision_within_ttl() {
     let harness = create_query_harness(Duration::from_secs(2));
     harness.role_repository.set_roles(vec!["admin".to_string()]);
     harness.policy_repository.set_rules(vec![PolicyRuleRecord {
-        tenant_id: "tenant_a".to_string(),
+        tenant_id: TENANT_A_ID.to_string(),
         role_name: "admin".to_string(),
         resource_name: "productos".to_string(),
         action_name: "read".to_string(),
@@ -189,7 +189,7 @@ async fn evaluate_permission_cache_expires_after_ttl() {
     let harness = create_query_harness(Duration::from_millis(20));
     harness.role_repository.set_roles(vec!["admin".to_string()]);
     harness.policy_repository.set_rules(vec![PolicyRuleRecord {
-        tenant_id: "tenant_a".to_string(),
+        tenant_id: TENANT_A_ID.to_string(),
         role_name: "admin".to_string(),
         resource_name: "productos".to_string(),
         action_name: "read".to_string(),
@@ -222,7 +222,7 @@ async fn evaluate_permission_audits_request_id() {
     let harness = create_query_harness(Duration::from_secs(30));
     harness.role_repository.set_roles(vec!["admin".to_string()]);
     harness.policy_repository.set_rules(vec![PolicyRuleRecord {
-        tenant_id: "tenant_a".to_string(),
+        tenant_id: TENANT_A_ID.to_string(),
         role_name: "admin".to_string(),
         resource_name: "productos".to_string(),
         action_name: "read".to_string(),

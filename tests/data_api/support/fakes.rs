@@ -12,19 +12,22 @@ use swagger_axum_api::data_api::{
     infrastructure::persistence::repositories::{
         data_api_audit_log_repository::DataApiAuditLogRepository,
         data_api_repository::{
-            CreateRowCriteria, DataApiRepository, DeleteRowCriteria, GetRowByPrimaryKeyCriteria,
-            ListRowsCriteria, PatchRowCriteria,
+            ColumnMetadataUpdateCriteria, CreateRowCriteria, DataApiRepository, DeleteRowCriteria,
+            GetRowByPrimaryKeyCriteria, ListRowsCriteria, PatchRowCriteria,
+            TableAccessCatalogEntry, TableAccessMetadata, TableMetadataUpdateCriteria,
         },
         tenant_schema_resolver_repository::TenantSchemaResolverRepository,
     },
     interfaces::acl::access_control_facade::{
-        AccessControlFacade, DataApiAuthorizationCheckRequest,
+        AccessControlFacade, DataApiAuthorizationBootstrapRequest, DataApiAuthorizationCheckRequest,
     },
 };
 
 #[derive(Default)]
 struct FakeDataApiRepositoryState {
     metadata: Option<TableSchemaMetadata>,
+    access: Option<TableAccessMetadata>,
+    writable_columns: Vec<String>,
     create_calls: usize,
     patch_calls: usize,
     delete_calls: usize,
@@ -79,6 +82,20 @@ impl FakeDataApiRepository {
         Self {
             state: Mutex::new(FakeDataApiRepositoryState {
                 metadata: Some(metadata),
+                access: Some(TableAccessMetadata {
+                    exposed: true,
+                    read_enabled: true,
+                    create_enabled: true,
+                    update_enabled: true,
+                    delete_enabled: true,
+                    introspect_enabled: true,
+                    authorization_mode: "acl".to_string(),
+                }),
+                writable_columns: vec![
+                    "nombre".to_string(),
+                    "precio".to_string(),
+                    "image_url".to_string(),
+                ],
                 ..FakeDataApiRepositoryState::default()
             }),
         }
@@ -111,6 +128,13 @@ impl FakeDataApiRepository {
             for column in &mut metadata.columns {
                 column.is_primary_key = false;
             }
+        }
+    }
+
+    pub fn set_table_exposed(&self, exposed: bool) {
+        let mut state = self.state.lock().expect("mutex poisoned");
+        if let Some(access) = &mut state.access {
+            access.exposed = exposed;
         }
     }
 
@@ -149,6 +173,107 @@ impl FakeDataApiRepository {
 
 #[async_trait]
 impl DataApiRepository for FakeDataApiRepository {
+    async fn synchronize_metadata(
+        &self,
+        _tenant_id: &TenantId,
+        _schema_name: &str,
+    ) -> Result<(), DataApiDomainError> {
+        Ok(())
+    }
+
+    async fn get_table_access_metadata(
+        &self,
+        _tenant_id: &TenantId,
+        _schema_name: &str,
+        _table_name: &str,
+    ) -> Result<TableAccessMetadata, DataApiDomainError> {
+        let state = self.state.lock().expect("mutex poisoned");
+        state
+            .access
+            .clone()
+            .ok_or(DataApiDomainError::TableNotAllowed)
+    }
+
+    async fn list_writable_columns(
+        &self,
+        _tenant_id: &TenantId,
+        _schema_name: &str,
+        _table_name: &str,
+    ) -> Result<Vec<String>, DataApiDomainError> {
+        let state = self.state.lock().expect("mutex poisoned");
+        Ok(state.writable_columns.clone())
+    }
+
+    async fn list_access_catalog(
+        &self,
+        _tenant_id: &TenantId,
+        _schema_name: &str,
+    ) -> Result<Vec<TableAccessCatalogEntry>, DataApiDomainError> {
+        let state = self.state.lock().expect("mutex poisoned");
+        let access = state
+            .access
+            .clone()
+            .ok_or(DataApiDomainError::TableNotAllowed)?;
+
+        Ok(vec![TableAccessCatalogEntry {
+            table_name: "productos".to_string(),
+            exposed: access.exposed,
+            read_enabled: access.read_enabled,
+            create_enabled: access.create_enabled,
+            update_enabled: access.update_enabled,
+            delete_enabled: access.delete_enabled,
+            introspect_enabled: access.introspect_enabled,
+            authorization_mode: access.authorization_mode,
+            writable_columns: state.writable_columns.clone(),
+        }])
+    }
+
+    async fn upsert_table_access_metadata(
+        &self,
+        _tenant_id: &TenantId,
+        _schema_name: &str,
+        _table_name: &str,
+        criteria: TableMetadataUpdateCriteria,
+    ) -> Result<TableAccessMetadata, DataApiDomainError> {
+        let mut state = self.state.lock().expect("mutex poisoned");
+        let metadata = TableAccessMetadata {
+            exposed: criteria.exposed,
+            read_enabled: criteria.read_enabled,
+            create_enabled: criteria.create_enabled,
+            update_enabled: criteria.update_enabled,
+            delete_enabled: criteria.delete_enabled,
+            introspect_enabled: criteria.introspect_enabled,
+            authorization_mode: criteria.authorization_mode,
+        };
+        state.access = Some(metadata.clone());
+        Ok(metadata)
+    }
+
+    async fn upsert_column_access_metadata(
+        &self,
+        _tenant_id: &TenantId,
+        _schema_name: &str,
+        _table_name: &str,
+        column_name: &str,
+        criteria: ColumnMetadataUpdateCriteria,
+    ) -> Result<(), DataApiDomainError> {
+        let mut state = self.state.lock().expect("mutex poisoned");
+        if criteria.writable {
+            if !state
+                .writable_columns
+                .iter()
+                .any(|column| column == column_name)
+            {
+                state.writable_columns.push(column_name.to_string());
+            }
+        } else {
+            state
+                .writable_columns
+                .retain(|column| column != column_name);
+        }
+        Ok(())
+    }
+
     async fn introspect_table(
         &self,
         _tenant_id: &TenantId,
@@ -346,6 +471,13 @@ impl AccessControlFacade for FakeAccessControlFacade {
             return Err(DataApiDomainError::AccessDenied);
         }
 
+        Ok(())
+    }
+
+    async fn bootstrap_table_access(
+        &self,
+        _request: DataApiAuthorizationBootstrapRequest,
+    ) -> Result<(), DataApiDomainError> {
         Ok(())
     }
 }

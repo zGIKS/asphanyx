@@ -2,6 +2,7 @@ use async_trait::async_trait;
 
 use crate::provisioner::domain::model::{
     commands::{
+        change_provisioned_database_password_command::ChangeProvisionedDatabasePasswordCommand,
         create_provisioned_database_command::CreateProvisionedDatabaseCommand,
         delete_provisioned_database_command::DeleteProvisionedDatabaseCommand,
     },
@@ -19,5 +20,10 @@ pub trait DatabaseProvisioningCommandService: Send + Sync {
     async fn handle_delete(
         &self,
         command: DeleteProvisionedDatabaseCommand,
+    ) -> Result<(), ProvisionerDomainError>;
+
+    async fn handle_change_password(
+        &self,
+        command: ChangeProvisionedDatabasePasswordCommand,
     ) -> Result<(), ProvisionerDomainError>;
 }

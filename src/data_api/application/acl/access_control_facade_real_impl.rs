@@ -5,11 +5,13 @@ use async_trait::async_trait;
 use crate::{
     access_control::interfaces::acl::access_control_facade::{
         AccessControlFacade as AccessControlBcFacade, AccessControlPermissionRequest,
+        DataApiAccessBootstrapRequest,
     },
     data_api::{
         domain::model::enums::data_api_domain_error::DataApiDomainError,
         interfaces::acl::access_control_facade::{
-            AccessControlFacade, DataApiAuthorizationCheckRequest,
+            AccessControlFacade, DataApiAuthorizationBootstrapRequest,
+            DataApiAuthorizationCheckRequest,
         },
     },
 };
@@ -50,5 +52,21 @@ impl AccessControlFacade for AccessControlFacadeRealImpl {
         } else {
             Err(DataApiDomainError::AccessDenied)
         }
+    }
+
+    async fn bootstrap_table_access(
+        &self,
+        request: DataApiAuthorizationBootstrapRequest,
+    ) -> Result<(), DataApiDomainError> {
+        self.facade
+            .bootstrap_data_api_access(DataApiAccessBootstrapRequest {
+                tenant_id: request.tenant_id,
+                principal_id: request.principal_id,
+                resource_name: request.resource_name,
+                readable_columns: request.readable_columns,
+                writable_columns: request.writable_columns,
+            })
+            .await
+            .map_err(|e| DataApiDomainError::InfrastructureError(e.to_string()))
     }
 }

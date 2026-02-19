@@ -17,14 +17,18 @@ use swagger_axum_api::{
         build_data_api_router,
         interfaces::rest::resources::{
             data_api_auth_headers_resource::DataApiAuthHeadersResource,
+            data_api_column_access_metadata_update_request_resource::DataApiColumnAccessMetadataUpdateRequestResource,
             data_api_error_response_resource::DataApiErrorResponseResource,
             data_api_list_rows_query_resource::DataApiListRowsQueryResource,
             data_api_payload_resource::DataApiPayloadResource,
+            data_api_table_access_catalog_resource::DataApiTableAccessCatalogEntryResource,
+            data_api_table_access_metadata_update_request_resource::DataApiTableAccessMetadataUpdateRequestResource,
         },
     },
     provisioner::{
         build_provisioner_router,
         interfaces::rest::resources::{
+            change_provisioned_database_password_request_resource::ChangeProvisionedDatabasePasswordRequestResource,
             create_provisioned_database_request_resource::{
                 CreateProvisionedDatabaseRequestResource, ListProvisionedDatabasesQueryResource,
             },
@@ -41,10 +45,14 @@ use utoipa_swagger_ui::SwaggerUi;
     paths(
         swagger_axum_api::provisioner::interfaces::rest::controllers::provisioner_rest_controller::create_provisioned_database,
         swagger_axum_api::provisioner::interfaces::rest::controllers::provisioner_rest_controller::delete_provisioned_database,
+        swagger_axum_api::provisioner::interfaces::rest::controllers::provisioner_rest_controller::change_provisioned_database_password,
         swagger_axum_api::provisioner::interfaces::rest::controllers::provisioner_rest_controller::list_provisioned_databases,
         swagger_axum_api::data_api::interfaces::rest::controllers::data_api_rest_controller::list_rows,
         swagger_axum_api::data_api::interfaces::rest::controllers::data_api_rest_controller::get_row,
         swagger_axum_api::data_api::interfaces::rest::controllers::data_api_rest_controller::create_row,
+        swagger_axum_api::data_api::interfaces::rest::controllers::data_api_rest_controller::list_access_catalog,
+        swagger_axum_api::data_api::interfaces::rest::controllers::data_api_rest_controller::upsert_table_access_metadata,
+        swagger_axum_api::data_api::interfaces::rest::controllers::data_api_rest_controller::upsert_column_access_metadata,
         swagger_axum_api::data_api::interfaces::rest::controllers::data_api_rest_controller::patch_row,
         swagger_axum_api::data_api::interfaces::rest::controllers::data_api_rest_controller::delete_row,
         swagger_axum_api::data_api::interfaces::rest::controllers::data_api_rest_controller::introspect_table_schema,
@@ -55,6 +63,7 @@ use utoipa_swagger_ui::SwaggerUi;
     components(
         schemas(
             CreateProvisionedDatabaseRequestResource,
+            ChangeProvisionedDatabasePasswordRequestResource,
             ListProvisionedDatabasesQueryResource,
             ProvisionedDatabaseResource,
             ErrorResponseResource,
@@ -62,6 +71,9 @@ use utoipa_swagger_ui::SwaggerUi;
             DataApiErrorResponseResource,
             DataApiListRowsQueryResource,
             DataApiPayloadResource,
+            DataApiTableAccessMetadataUpdateRequestResource,
+            DataApiColumnAccessMetadataUpdateRequestResource,
+            DataApiTableAccessCatalogEntryResource,
             AssignRoleRequestResource,
             UpsertPolicyRuleRequestResource,
             EvaluatePermissionRequestResource,

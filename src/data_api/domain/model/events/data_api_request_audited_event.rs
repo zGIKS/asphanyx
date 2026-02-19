@@ -1,10 +1,11 @@
 use chrono::{DateTime, Utc};
+use uuid::Uuid;
 
 use crate::data_api::domain::model::enums::data_api_action::DataApiAction;
 
 #[derive(Clone, Debug)]
 pub struct DataApiRequestAuditedEvent {
-    pub tenant_id: String,
+    pub tenant_id: Uuid,
     pub request_id: Option<String>,
     pub schema_name: String,
     pub table_name: String,

@@ -1,7 +1,7 @@
 #[path = "support/fakes.rs"]
 mod fakes;
 #[path = "support/fixtures.rs"]
-mod fixtures;
+pub mod fixtures;
 #[path = "support/harness.rs"]
 mod harness;
 

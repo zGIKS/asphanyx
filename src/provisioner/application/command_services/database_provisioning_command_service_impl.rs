@@ -7,6 +7,7 @@ use crate::provisioner::{
     domain::{
         model::{
             commands::{
+                change_provisioned_database_password_command::ChangeProvisionedDatabasePasswordCommand,
                 create_provisioned_database_command::CreateProvisionedDatabaseCommand,
                 delete_provisioned_database_command::DeleteProvisionedDatabaseCommand,
             },
@@ -18,7 +19,9 @@ use crate::provisioner::{
             events::{
                 provisioned_database_created_event::ProvisionedDatabaseCreatedEvent,
                 provisioned_database_deleted_event::ProvisionedDatabaseDeletedEvent,
+                provisioned_database_password_changed_event::ProvisionedDatabasePasswordChangedEvent,
             },
+            value_objects::provisioned_database_id::ProvisionedDatabaseId,
         },
         services::database_provisioning_command_service::DatabaseProvisioningCommandService,
     },
@@ -67,8 +70,10 @@ impl DatabaseProvisioningCommandService for DatabaseProvisioningCommandServiceIm
         }
 
         let mut database = ProvisionedDatabase::new_provisioning(
+            ProvisionedDatabaseId::new_random(),
             command.database_name().clone(),
             command.username().clone(),
+            command.password_hash().clone(),
             Utc::now(),
         );
 
@@ -202,6 +207,78 @@ impl DatabaseProvisioningCommandService for DatabaseProvisioningCommandServiceIm
                 "database_delete_succeeded",
                 event.database_name.value(),
                 Some(database.username().value().to_string()),
+                database.status().as_str(),
+                None,
+                event.occurred_at,
+            ))
+            .await;
+
+        Ok(())
+    }
+
+    async fn handle_change_password(
+        &self,
+        command: ChangeProvisionedDatabasePasswordCommand,
+    ) -> Result<(), ProvisionerDomainError> {
+        let mut database = self
+            .metadata_repository
+            .find_by_name(command.database_name())
+            .await?
+            .ok_or(ProvisionerDomainError::DatabaseNotFound)?;
+
+        if database.status() != ProvisionedDatabaseStatus::Active
+            && database.status() != ProvisionedDatabaseStatus::Failed
+        {
+            return Err(ProvisionerDomainError::InvalidStatusTransition);
+        }
+
+        let _ = self
+            .audit_event_repository
+            .save_event(&ProvisioningAuditEventRecord::new(
+                "database_password_change_started",
+                database.database_name().value(),
+                Some(database.username().value().to_string()),
+                database.status().as_str(),
+                None,
+                Utc::now(),
+            ))
+            .await;
+
+        let change_result = self
+            .postgres_administration_repository
+            .change_database_user_password(database.username(), command.password())
+            .await;
+
+        if let Err(error) = change_result {
+            let _ = self
+                .audit_event_repository
+                .save_event(&ProvisioningAuditEventRecord::new(
+                    "database_password_change_failed",
+                    database.database_name().value(),
+                    Some(database.username().value().to_string()),
+                    database.status().as_str(),
+                    Some(error.to_string()),
+                    Utc::now(),
+                ))
+                .await;
+
+            return Err(error);
+        }
+
+        database.update_password_hash(command.password_hash().clone());
+        self.metadata_repository.save(&database).await?;
+        let event = ProvisionedDatabasePasswordChangedEvent::new(
+            database.database_name().clone(),
+            database.username().clone(),
+            Utc::now(),
+        );
+
+        let _ = self
+            .audit_event_repository
+            .save_event(&ProvisioningAuditEventRecord::new(
+                "database_password_change_succeeded",
+                event.database_name.value(),
+                Some(event.username.value().to_string()),
                 database.status().as_str(),
                 None,
                 event.occurred_at,

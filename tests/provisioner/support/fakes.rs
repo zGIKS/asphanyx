@@ -102,8 +102,10 @@ struct FakePostgresAdministrationState {
     create_calls: usize,
     delete_calls: usize,
     rollback_calls: usize,
+    change_password_calls: usize,
     create_should_fail: bool,
     delete_should_fail: bool,
+    change_password_should_fail: bool,
 }
 
 pub struct FakePostgresAdministrationRepository {
@@ -117,15 +119,22 @@ impl FakePostgresAdministrationRepository {
                 create_calls: 0,
                 delete_calls: 0,
                 rollback_calls: 0,
+                change_password_calls: 0,
                 create_should_fail,
                 delete_should_fail,
+                change_password_should_fail: false,
             }),
         }
     }
 
-    pub fn stats(&self) -> (usize, usize, usize) {
+    pub fn stats(&self) -> (usize, usize, usize, usize) {
         let state = self.state.lock().expect("mutex poisoned");
-        (state.create_calls, state.delete_calls, state.rollback_calls)
+        (
+            state.create_calls,
+            state.delete_calls,
+            state.rollback_calls,
+            state.change_password_calls,
+        )
     }
 }
 
@@ -169,6 +178,23 @@ impl PostgresDatabaseAdministrationRepository for FakePostgresAdministrationRepo
         _username: &DatabaseUsername,
     ) -> Result<(), ProvisionerDomainError> {
         self.state.lock().expect("mutex poisoned").rollback_calls += 1;
+        Ok(())
+    }
+
+    async fn change_database_user_password(
+        &self,
+        _username: &DatabaseUsername,
+        _password: &DatabasePassword,
+    ) -> Result<(), ProvisionerDomainError> {
+        let mut state = self.state.lock().expect("mutex poisoned");
+        state.change_password_calls += 1;
+
+        if state.change_password_should_fail {
+            return Err(ProvisionerDomainError::InfrastructureError(
+                "change password failed".to_string(),
+            ));
+        }
+
         Ok(())
     }
 }
