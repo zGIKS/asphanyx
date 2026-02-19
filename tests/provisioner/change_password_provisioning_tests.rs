@@ -41,7 +41,10 @@ async fn handle_change_password_returns_not_found_when_database_is_missing() {
         .handle_change_password(change_password_command())
         .await;
 
-    assert!(matches!(result, Err(ProvisionerDomainError::DatabaseNotFound)));
+    assert!(matches!(
+        result,
+        Err(ProvisionerDomainError::DatabaseNotFound)
+    ));
     assert_eq!(harness.postgres_repository.stats(), (0, 0, 0, 0));
     assert!(harness.audit_repository.saved_event_names().is_empty());
 }

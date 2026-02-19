@@ -49,8 +49,92 @@ pub struct DeleteRowCriteria<'a> {
     pub primary_key_value: &'a str,
 }
 
+#[derive(Clone, Debug)]
+pub struct TableAccessMetadata {
+    pub exposed: bool,
+    pub read_enabled: bool,
+    pub create_enabled: bool,
+    pub update_enabled: bool,
+    pub delete_enabled: bool,
+    pub introspect_enabled: bool,
+    pub authorization_mode: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct TableMetadataUpdateCriteria {
+    pub exposed: bool,
+    pub read_enabled: bool,
+    pub create_enabled: bool,
+    pub update_enabled: bool,
+    pub delete_enabled: bool,
+    pub introspect_enabled: bool,
+    pub authorization_mode: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct ColumnMetadataUpdateCriteria {
+    pub readable: bool,
+    pub writable: bool,
+}
+
+#[derive(Clone, Debug)]
+pub struct TableAccessCatalogEntry {
+    pub table_name: String,
+    pub exposed: bool,
+    pub read_enabled: bool,
+    pub create_enabled: bool,
+    pub update_enabled: bool,
+    pub delete_enabled: bool,
+    pub introspect_enabled: bool,
+    pub authorization_mode: String,
+    pub writable_columns: Vec<String>,
+}
+
 #[async_trait]
 pub trait DataApiRepository: Send + Sync {
+    async fn synchronize_metadata(
+        &self,
+        tenant_id: &TenantId,
+        schema_name: &str,
+    ) -> Result<(), DataApiDomainError>;
+
+    async fn get_table_access_metadata(
+        &self,
+        tenant_id: &TenantId,
+        schema_name: &str,
+        table_name: &str,
+    ) -> Result<TableAccessMetadata, DataApiDomainError>;
+
+    async fn list_writable_columns(
+        &self,
+        tenant_id: &TenantId,
+        schema_name: &str,
+        table_name: &str,
+    ) -> Result<Vec<String>, DataApiDomainError>;
+
+    async fn list_access_catalog(
+        &self,
+        tenant_id: &TenantId,
+        schema_name: &str,
+    ) -> Result<Vec<TableAccessCatalogEntry>, DataApiDomainError>;
+
+    async fn upsert_table_access_metadata(
+        &self,
+        tenant_id: &TenantId,
+        schema_name: &str,
+        table_name: &str,
+        criteria: TableMetadataUpdateCriteria,
+    ) -> Result<TableAccessMetadata, DataApiDomainError>;
+
+    async fn upsert_column_access_metadata(
+        &self,
+        tenant_id: &TenantId,
+        schema_name: &str,
+        table_name: &str,
+        column_name: &str,
+        criteria: ColumnMetadataUpdateCriteria,
+    ) -> Result<(), DataApiDomainError>;
+
     async fn introspect_table(
         &self,
         tenant_id: &TenantId,

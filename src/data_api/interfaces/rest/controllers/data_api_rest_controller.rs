@@ -1,12 +1,17 @@
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::{BTreeMap, hash_map::DefaultHasher},
+    hash::{Hash, Hasher},
+    sync::Arc,
+};
 
 use axum::{
     Json, Router,
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
-    routing::{delete, get, patch, post},
+    routing::{delete, get, patch, post, put},
 };
 use serde_json::Value;
+use uuid::Uuid;
 use validator::Validate;
 
 use crate::data_api::{
@@ -34,9 +39,15 @@ use crate::data_api::{
             data_api_query_service::DataApiQueryService,
         },
     },
+    infrastructure::persistence::repositories::data_api_repository::{
+        ColumnMetadataUpdateCriteria, DataApiRepository, TableMetadataUpdateCriteria,
+    },
     interfaces::rest::resources::{
+        data_api_column_access_metadata_update_request_resource::DataApiColumnAccessMetadataUpdateRequestResource,
         data_api_error_response_resource::DataApiErrorResponseResource,
         data_api_payload_resource::DataApiPayloadResource,
+        data_api_table_access_catalog_resource::DataApiTableAccessCatalogEntryResource,
+        data_api_table_access_metadata_update_request_resource::DataApiTableAccessMetadataUpdateRequestResource,
     },
 };
 
@@ -44,10 +55,20 @@ use crate::data_api::{
 pub struct DataApiRestControllerState {
     pub command_service: Arc<dyn DataApiCommandService>,
     pub query_service: Arc<dyn DataApiQueryService>,
+    pub repository: Arc<dyn DataApiRepository>,
 }
 
 pub fn router(state: DataApiRestControllerState) -> Router {
     Router::new()
+        .route("/api/v1/_metadata", get(list_access_catalog))
+        .route(
+            "/api/v1/_metadata/:table_name",
+            put(upsert_table_access_metadata),
+        )
+        .route(
+            "/api/v1/_metadata/:table_name/columns/:column_name",
+            put(upsert_column_access_metadata),
+        )
         .route("/api/v1/:table_name", get(list_rows))
         .route("/api/v1/:table_name", post(create_row))
         .route("/api/v1/:table_name/_schema", get(introspect_table_schema))
@@ -55,6 +76,195 @@ pub fn router(state: DataApiRestControllerState) -> Router {
         .route("/api/v1/:table_name/:row_id", patch(patch_row))
         .route("/api/v1/:table_name/:row_id", delete(delete_row))
         .with_state(state)
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/_metadata",
+    tag = "data-api",
+    params(
+        ("x-tenant-id" = String, Header, description = "Tenant id"),
+        ("x-tenant-schema" = Option<String>, Header, description = "Schema opcional por tenant"),
+        ("authorization" = String, Header, description = "JWT o API key del principal"),
+        ("x-request-id" = Option<String>, Header, description = "Correlation id opcional")
+    ),
+    responses(
+        (status = 200, description = "Catálogo de metadatos", body = [DataApiTableAccessCatalogEntryResource]),
+        (status = 401, description = "Auth faltante o inválida", body = DataApiErrorResponseResource),
+        (status = 500, description = "Error interno", body = DataApiErrorResponseResource)
+    )
+)]
+pub async fn list_access_catalog(
+    State(state): State<DataApiRestControllerState>,
+    headers: HeaderMap,
+) -> Result<
+    Json<Vec<DataApiTableAccessCatalogEntryResource>>,
+    (StatusCode, Json<DataApiErrorResponseResource>),
+> {
+    let auth = parse_auth_headers(&headers)?;
+    let tenant_id = parse_tenant_id(&auth.tenant_id)?;
+
+    state
+        .repository
+        .synchronize_metadata(&tenant_id, &auth.schema_name)
+        .await
+        .map_err(map_domain_error)?;
+
+    let catalog = state
+        .repository
+        .list_access_catalog(&tenant_id, &auth.schema_name)
+        .await
+        .map_err(map_domain_error)?;
+
+    Ok(Json(
+        catalog
+            .into_iter()
+            .map(|entry| DataApiTableAccessCatalogEntryResource {
+                table_name: entry.table_name,
+                exposed: entry.exposed,
+                read_enabled: entry.read_enabled,
+                create_enabled: entry.create_enabled,
+                update_enabled: entry.update_enabled,
+                delete_enabled: entry.delete_enabled,
+                introspect_enabled: entry.introspect_enabled,
+                authorization_mode: entry.authorization_mode,
+                writable_columns: entry.writable_columns,
+            })
+            .collect(),
+    ))
+}
+
+#[utoipa::path(
+    put,
+    path = "/api/v1/_metadata/{table_name}",
+    tag = "data-api",
+    params(
+        ("table_name" = String, Path, description = "Nombre de tabla"),
+        ("x-tenant-id" = String, Header, description = "Tenant id"),
+        ("x-tenant-schema" = Option<String>, Header, description = "Schema opcional por tenant"),
+        ("authorization" = String, Header, description = "JWT o API key del principal")
+    ),
+    request_body = DataApiTableAccessMetadataUpdateRequestResource,
+    responses(
+        (status = 200, description = "Metadatos de tabla actualizados", body = DataApiTableAccessCatalogEntryResource),
+        (status = 400, description = "Request inválido", body = DataApiErrorResponseResource),
+        (status = 401, description = "Auth faltante o inválida", body = DataApiErrorResponseResource),
+        (status = 500, description = "Error interno", body = DataApiErrorResponseResource)
+    )
+)]
+pub async fn upsert_table_access_metadata(
+    State(state): State<DataApiRestControllerState>,
+    Path(table_name): Path<String>,
+    headers: HeaderMap,
+    Json(resource): Json<DataApiTableAccessMetadataUpdateRequestResource>,
+) -> Result<
+    Json<DataApiTableAccessCatalogEntryResource>,
+    (StatusCode, Json<DataApiErrorResponseResource>),
+> {
+    let auth = parse_auth_headers(&headers)?;
+    if !matches!(
+        resource.authorization_mode.as_str(),
+        "acl" | "authenticated"
+    ) {
+        return Err(map_domain_error(DataApiDomainError::InvalidQueryParameters));
+    }
+
+    let tenant_id = parse_tenant_id(&auth.tenant_id)?;
+
+    state
+        .repository
+        .synchronize_metadata(&tenant_id, &auth.schema_name)
+        .await
+        .map_err(map_domain_error)?;
+
+    let metadata = state
+        .repository
+        .upsert_table_access_metadata(
+            &tenant_id,
+            &auth.schema_name,
+            &table_name,
+            TableMetadataUpdateCriteria {
+                exposed: resource.exposed,
+                read_enabled: resource.read_enabled,
+                create_enabled: resource.create_enabled,
+                update_enabled: resource.update_enabled,
+                delete_enabled: resource.delete_enabled,
+                introspect_enabled: resource.introspect_enabled,
+                authorization_mode: resource.authorization_mode,
+            },
+        )
+        .await
+        .map_err(map_domain_error)?;
+
+    let writable_columns = state
+        .repository
+        .list_writable_columns(&tenant_id, &auth.schema_name, &table_name)
+        .await
+        .map_err(map_domain_error)?;
+
+    Ok(Json(DataApiTableAccessCatalogEntryResource {
+        table_name,
+        exposed: metadata.exposed,
+        read_enabled: metadata.read_enabled,
+        create_enabled: metadata.create_enabled,
+        update_enabled: metadata.update_enabled,
+        delete_enabled: metadata.delete_enabled,
+        introspect_enabled: metadata.introspect_enabled,
+        authorization_mode: metadata.authorization_mode,
+        writable_columns,
+    }))
+}
+
+#[utoipa::path(
+    put,
+    path = "/api/v1/_metadata/{table_name}/columns/{column_name}",
+    tag = "data-api",
+    params(
+        ("table_name" = String, Path, description = "Nombre de tabla"),
+        ("column_name" = String, Path, description = "Nombre de columna"),
+        ("x-tenant-id" = String, Header, description = "Tenant id"),
+        ("x-tenant-schema" = Option<String>, Header, description = "Schema opcional por tenant"),
+        ("authorization" = String, Header, description = "JWT o API key del principal")
+    ),
+    request_body = DataApiColumnAccessMetadataUpdateRequestResource,
+    responses(
+        (status = 204, description = "Metadatos de columna actualizados"),
+        (status = 400, description = "Request inválido", body = DataApiErrorResponseResource),
+        (status = 401, description = "Auth faltante o inválida", body = DataApiErrorResponseResource),
+        (status = 500, description = "Error interno", body = DataApiErrorResponseResource)
+    )
+)]
+pub async fn upsert_column_access_metadata(
+    State(state): State<DataApiRestControllerState>,
+    Path((table_name, column_name)): Path<(String, String)>,
+    headers: HeaderMap,
+    Json(resource): Json<DataApiColumnAccessMetadataUpdateRequestResource>,
+) -> Result<StatusCode, (StatusCode, Json<DataApiErrorResponseResource>)> {
+    let auth = parse_auth_headers(&headers)?;
+    let tenant_id = parse_tenant_id(&auth.tenant_id)?;
+
+    state
+        .repository
+        .synchronize_metadata(&tenant_id, &auth.schema_name)
+        .await
+        .map_err(map_domain_error)?;
+
+    state
+        .repository
+        .upsert_column_access_metadata(
+            &tenant_id,
+            &auth.schema_name,
+            &table_name,
+            &column_name,
+            ColumnMetadataUpdateCriteria {
+                readable: resource.readable,
+                writable: resource.writable,
+            },
+        )
+        .await
+        .map_err(map_domain_error)?;
+
+    Ok(StatusCode::NO_CONTENT)
 }
 
 #[utoipa::path(
@@ -455,9 +665,17 @@ fn parse_auth_headers(
         .and_then(|v| v.to_str().ok())
         .map(str::trim)
         .filter(|v| !v.is_empty())
+        .or_else(|| {
+            headers
+                .get("x-api-key")
+                .and_then(|v| v.to_str().ok())
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+        })
         .ok_or_else(|| map_domain_error(DataApiDomainError::MissingAuthentication))?;
 
-    let (principal, principal_type) = if let Some(token) = authorization.strip_prefix("Bearer ") {
+    let (raw_principal, principal_type) = if let Some(token) = authorization.strip_prefix("Bearer ")
+    {
         let token = token.trim();
         if token.is_empty() {
             return Err(map_domain_error(DataApiDomainError::InvalidAuthentication));
@@ -466,6 +684,10 @@ fn parse_auth_headers(
     } else {
         (authorization.to_string(), DataApiPrincipalType::ApiKey)
     };
+
+    let principal = Uuid::parse_str(&raw_principal)
+        .map(|value| value.to_string())
+        .unwrap_or_else(|_| deterministic_principal_uuid(&raw_principal));
 
     let request_id = headers
         .get("x-request-id")
@@ -499,6 +721,26 @@ fn parse_auth_headers(
     })
 }
 
+fn deterministic_principal_uuid(raw: &str) -> String {
+    let mut hasher_a = DefaultHasher::new();
+    raw.hash(&mut hasher_a);
+    let part_a = hasher_a.finish();
+
+    let mut hasher_b = DefaultHasher::new();
+    (raw.len() as u64).hash(&mut hasher_b);
+    raw.as_bytes()
+        .iter()
+        .rev()
+        .for_each(|byte| byte.hash(&mut hasher_b));
+    let part_b = hasher_b.finish();
+
+    let mut bytes = [0u8; 16];
+    bytes[..8].copy_from_slice(&part_a.to_be_bytes());
+    bytes[8..].copy_from_slice(&part_b.to_be_bytes());
+
+    Uuid::from_bytes(bytes).to_string()
+}
+
 fn header_string(
     headers: &HeaderMap,
     name: &str,
@@ -510,6 +752,16 @@ fn header_string(
         .filter(|value| !value.is_empty())
         .map(str::to_string)
         .ok_or_else(|| map_domain_error(DataApiDomainError::InvalidTenantId))
+}
+
+fn parse_tenant_id(
+    tenant_id: &str,
+) -> Result<
+    crate::data_api::domain::model::value_objects::tenant_id::TenantId,
+    (StatusCode, Json<DataApiErrorResponseResource>),
+> {
+    crate::data_api::domain::model::value_objects::tenant_id::TenantId::new(tenant_id.to_string())
+        .map_err(map_domain_error)
 }
 
 fn map_domain_error(error: DataApiDomainError) -> (StatusCode, Json<DataApiErrorResponseResource>) {

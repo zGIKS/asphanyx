@@ -11,8 +11,9 @@ use crate::data_api::{
     },
     infrastructure::persistence::repositories::{
         data_api_repository::{
-            CreateRowCriteria, DataApiRepository, DeleteRowCriteria, GetRowByPrimaryKeyCriteria,
-            ListRowsCriteria, PatchRowCriteria,
+            ColumnMetadataUpdateCriteria, CreateRowCriteria, DataApiRepository, DeleteRowCriteria,
+            GetRowByPrimaryKeyCriteria, ListRowsCriteria, PatchRowCriteria,
+            TableAccessCatalogEntry, TableAccessMetadata, TableMetadataUpdateCriteria,
         },
         tenant_connection_resolver_repository::TenantConnectionResolverRepository,
         tenant_pool_cache_repository::TenantPoolCacheRepository,
@@ -72,6 +73,373 @@ impl SqlxDataApiRepositoryImpl {
 
 #[async_trait::async_trait]
 impl DataApiRepository for SqlxDataApiRepositoryImpl {
+    async fn synchronize_metadata(
+        &self,
+        tenant_id: &TenantId,
+        schema_name: &str,
+    ) -> Result<(), DataApiDomainError> {
+        let tenant_pool = self.resolve_tenant_pool(tenant_id).await?;
+
+        let create_table_metadata_statement = r#"
+            CREATE TABLE IF NOT EXISTS data_api_table_metadata (
+                schema_name TEXT NOT NULL,
+                table_name TEXT NOT NULL,
+                exposed BOOLEAN NOT NULL DEFAULT TRUE,
+                read_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+                create_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+                update_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+                delete_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+                introspect_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+                authorization_mode TEXT NOT NULL DEFAULT 'authenticated',
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                PRIMARY KEY (schema_name, table_name)
+            )
+        "#;
+
+        let create_column_metadata_statement = r#"
+            CREATE TABLE IF NOT EXISTS data_api_column_metadata (
+                schema_name TEXT NOT NULL,
+                table_name TEXT NOT NULL,
+                column_name TEXT NOT NULL,
+                readable BOOLEAN NOT NULL DEFAULT TRUE,
+                writable BOOLEAN NOT NULL DEFAULT TRUE,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                PRIMARY KEY (schema_name, table_name, column_name)
+            )
+        "#;
+
+        sqlx::query(create_table_metadata_statement)
+            .execute(&tenant_pool)
+            .await
+            .map_err(|e| DataApiDomainError::InfrastructureError(e.to_string()))?;
+
+        sqlx::query(create_column_metadata_statement)
+            .execute(&tenant_pool)
+            .await
+            .map_err(|e| DataApiDomainError::InfrastructureError(e.to_string()))?;
+
+        let sync_table_statement = r#"
+            INSERT INTO data_api_table_metadata (
+                schema_name,
+                table_name,
+                exposed,
+                read_enabled,
+                create_enabled,
+                update_enabled,
+                delete_enabled,
+                introspect_enabled,
+                authorization_mode
+            )
+            SELECT
+                t.table_schema,
+                t.table_name,
+                TRUE,
+                TRUE,
+                TRUE,
+                TRUE,
+                TRUE,
+                TRUE,
+                'authenticated'
+            FROM information_schema.tables t
+            WHERE t.table_schema = $1
+                AND t.table_type = 'BASE TABLE'
+                AND t.table_name NOT IN ('data_api_table_metadata', 'data_api_column_metadata')
+            ON CONFLICT (schema_name, table_name) DO NOTHING
+        "#;
+
+        sqlx::query(sync_table_statement)
+            .bind(schema_name)
+            .execute(&tenant_pool)
+            .await
+            .map_err(|e| DataApiDomainError::InfrastructureError(e.to_string()))?;
+
+        let sync_columns_statement = r#"
+            INSERT INTO data_api_column_metadata (
+                schema_name,
+                table_name,
+                column_name,
+                readable,
+                writable
+            )
+            SELECT
+                c.table_schema,
+                c.table_name,
+                c.column_name,
+                TRUE,
+                CASE
+                    WHEN EXISTS (
+                        SELECT 1
+                        FROM information_schema.table_constraints tc
+                        INNER JOIN information_schema.key_column_usage kcu
+                            ON tc.constraint_name = kcu.constraint_name
+                            AND tc.table_schema = kcu.table_schema
+                            AND tc.table_name = kcu.table_name
+                        WHERE tc.table_schema = c.table_schema
+                            AND tc.table_name = c.table_name
+                            AND tc.constraint_type = 'PRIMARY KEY'
+                            AND kcu.column_name = c.column_name
+                    ) THEN FALSE
+                    ELSE TRUE
+                END
+            FROM information_schema.columns c
+            WHERE c.table_schema = $1
+                AND c.table_name IN (
+                    SELECT table_name
+                    FROM data_api_table_metadata
+                    WHERE schema_name = $1
+                        AND exposed = TRUE
+                )
+            ON CONFLICT (schema_name, table_name, column_name) DO NOTHING
+        "#;
+
+        sqlx::query(sync_columns_statement)
+            .bind(schema_name)
+            .execute(&tenant_pool)
+            .await
+            .map_err(|e| DataApiDomainError::InfrastructureError(e.to_string()))?;
+
+        Ok(())
+    }
+
+    async fn get_table_access_metadata(
+        &self,
+        tenant_id: &TenantId,
+        schema_name: &str,
+        table_name: &str,
+    ) -> Result<TableAccessMetadata, DataApiDomainError> {
+        let tenant_pool = self.resolve_tenant_pool(tenant_id).await?;
+
+        let statement = r#"
+            SELECT
+                exposed,
+                read_enabled,
+                create_enabled,
+                update_enabled,
+                delete_enabled,
+                introspect_enabled,
+                authorization_mode
+            FROM data_api_table_metadata
+            WHERE schema_name = $1
+                AND table_name = $2
+        "#;
+
+        let row = sqlx::query(statement)
+            .bind(schema_name)
+            .bind(table_name)
+            .fetch_optional(&tenant_pool)
+            .await
+            .map_err(|e| DataApiDomainError::InfrastructureError(e.to_string()))?
+            .ok_or(DataApiDomainError::TableNotAllowed)?;
+
+        Ok(TableAccessMetadata {
+            exposed: row.try_get::<bool, _>("exposed").unwrap_or(false),
+            read_enabled: row.try_get::<bool, _>("read_enabled").unwrap_or(false),
+            create_enabled: row.try_get::<bool, _>("create_enabled").unwrap_or(false),
+            update_enabled: row.try_get::<bool, _>("update_enabled").unwrap_or(false),
+            delete_enabled: row.try_get::<bool, _>("delete_enabled").unwrap_or(false),
+            introspect_enabled: row
+                .try_get::<bool, _>("introspect_enabled")
+                .unwrap_or(false),
+            authorization_mode: row
+                .try_get::<String, _>("authorization_mode")
+                .unwrap_or_else(|_| "authenticated".to_string()),
+        })
+    }
+
+    async fn list_writable_columns(
+        &self,
+        tenant_id: &TenantId,
+        schema_name: &str,
+        table_name: &str,
+    ) -> Result<Vec<String>, DataApiDomainError> {
+        let tenant_pool = self.resolve_tenant_pool(tenant_id).await?;
+        let statement = r#"
+            SELECT column_name
+            FROM data_api_column_metadata
+            WHERE schema_name = $1
+                AND table_name = $2
+                AND writable = TRUE
+        "#;
+
+        let rows = sqlx::query(statement)
+            .bind(schema_name)
+            .bind(table_name)
+            .fetch_all(&tenant_pool)
+            .await
+            .map_err(|e| DataApiDomainError::InfrastructureError(e.to_string()))?;
+
+        Ok(rows
+            .into_iter()
+            .filter_map(|row| row.try_get::<String, _>("column_name").ok())
+            .collect())
+    }
+
+    async fn list_access_catalog(
+        &self,
+        tenant_id: &TenantId,
+        schema_name: &str,
+    ) -> Result<Vec<TableAccessCatalogEntry>, DataApiDomainError> {
+        let tenant_pool = self.resolve_tenant_pool(tenant_id).await?;
+        let statement = r#"
+            SELECT
+                table_name,
+                exposed,
+                read_enabled,
+                create_enabled,
+                update_enabled,
+                delete_enabled,
+                introspect_enabled,
+                authorization_mode
+            FROM data_api_table_metadata
+            WHERE schema_name = $1
+            ORDER BY table_name
+        "#;
+
+        let rows = sqlx::query(statement)
+            .bind(schema_name)
+            .fetch_all(&tenant_pool)
+            .await
+            .map_err(|e| DataApiDomainError::InfrastructureError(e.to_string()))?;
+
+        let mut entries = Vec::with_capacity(rows.len());
+        for row in rows {
+            let table_name = row
+                .try_get::<String, _>("table_name")
+                .map_err(|e| DataApiDomainError::InfrastructureError(e.to_string()))?;
+            let writable_columns = self
+                .list_writable_columns(tenant_id, schema_name, &table_name)
+                .await?;
+
+            entries.push(TableAccessCatalogEntry {
+                table_name,
+                exposed: row.try_get::<bool, _>("exposed").unwrap_or(false),
+                read_enabled: row.try_get::<bool, _>("read_enabled").unwrap_or(false),
+                create_enabled: row.try_get::<bool, _>("create_enabled").unwrap_or(false),
+                update_enabled: row.try_get::<bool, _>("update_enabled").unwrap_or(false),
+                delete_enabled: row.try_get::<bool, _>("delete_enabled").unwrap_or(false),
+                introspect_enabled: row
+                    .try_get::<bool, _>("introspect_enabled")
+                    .unwrap_or(false),
+                authorization_mode: row
+                    .try_get::<String, _>("authorization_mode")
+                    .unwrap_or_else(|_| "authenticated".to_string()),
+                writable_columns,
+            });
+        }
+
+        Ok(entries)
+    }
+
+    async fn upsert_table_access_metadata(
+        &self,
+        tenant_id: &TenantId,
+        schema_name: &str,
+        table_name: &str,
+        criteria: TableMetadataUpdateCriteria,
+    ) -> Result<TableAccessMetadata, DataApiDomainError> {
+        let tenant_pool = self.resolve_tenant_pool(tenant_id).await?;
+        let statement = r#"
+            INSERT INTO data_api_table_metadata (
+                schema_name,
+                table_name,
+                exposed,
+                read_enabled,
+                create_enabled,
+                update_enabled,
+                delete_enabled,
+                introspect_enabled,
+                authorization_mode
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            ON CONFLICT (schema_name, table_name)
+            DO UPDATE SET
+                exposed = EXCLUDED.exposed,
+                read_enabled = EXCLUDED.read_enabled,
+                create_enabled = EXCLUDED.create_enabled,
+                update_enabled = EXCLUDED.update_enabled,
+                delete_enabled = EXCLUDED.delete_enabled,
+                introspect_enabled = EXCLUDED.introspect_enabled,
+                authorization_mode = EXCLUDED.authorization_mode,
+                updated_at = NOW()
+            RETURNING
+                exposed,
+                read_enabled,
+                create_enabled,
+                update_enabled,
+                delete_enabled,
+                introspect_enabled,
+                authorization_mode
+        "#;
+
+        let row = sqlx::query(statement)
+            .bind(schema_name)
+            .bind(table_name)
+            .bind(criteria.exposed)
+            .bind(criteria.read_enabled)
+            .bind(criteria.create_enabled)
+            .bind(criteria.update_enabled)
+            .bind(criteria.delete_enabled)
+            .bind(criteria.introspect_enabled)
+            .bind(criteria.authorization_mode)
+            .fetch_one(&tenant_pool)
+            .await
+            .map_err(|e| DataApiDomainError::InfrastructureError(e.to_string()))?;
+
+        Ok(TableAccessMetadata {
+            exposed: row.try_get::<bool, _>("exposed").unwrap_or(false),
+            read_enabled: row.try_get::<bool, _>("read_enabled").unwrap_or(false),
+            create_enabled: row.try_get::<bool, _>("create_enabled").unwrap_or(false),
+            update_enabled: row.try_get::<bool, _>("update_enabled").unwrap_or(false),
+            delete_enabled: row.try_get::<bool, _>("delete_enabled").unwrap_or(false),
+            introspect_enabled: row
+                .try_get::<bool, _>("introspect_enabled")
+                .unwrap_or(false),
+            authorization_mode: row
+                .try_get::<String, _>("authorization_mode")
+                .unwrap_or_else(|_| "authenticated".to_string()),
+        })
+    }
+
+    async fn upsert_column_access_metadata(
+        &self,
+        tenant_id: &TenantId,
+        schema_name: &str,
+        table_name: &str,
+        column_name: &str,
+        criteria: ColumnMetadataUpdateCriteria,
+    ) -> Result<(), DataApiDomainError> {
+        let tenant_pool = self.resolve_tenant_pool(tenant_id).await?;
+        let statement = r#"
+            INSERT INTO data_api_column_metadata (
+                schema_name,
+                table_name,
+                column_name,
+                readable,
+                writable
+            )
+            VALUES ($1, $2, $3, $4, $5)
+            ON CONFLICT (schema_name, table_name, column_name)
+            DO UPDATE SET
+                readable = EXCLUDED.readable,
+                writable = EXCLUDED.writable,
+                updated_at = NOW()
+        "#;
+
+        sqlx::query(statement)
+            .bind(schema_name)
+            .bind(table_name)
+            .bind(column_name)
+            .bind(criteria.readable)
+            .bind(criteria.writable)
+            .execute(&tenant_pool)
+            .await
+            .map_err(|e| DataApiDomainError::InfrastructureError(e.to_string()))?;
+
+        Ok(())
+    }
+
     async fn introspect_table(
         &self,
         tenant_id: &TenantId,
