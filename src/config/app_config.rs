@@ -40,4 +40,15 @@ impl AppConfig {
             self.postgres_admin_database
         )
     }
+
+    pub fn database_url_for(&self, database_name: &str) -> String {
+        format!(
+            "postgres://{}:{}@{}:{}/{}",
+            self.postgres_user,
+            self.postgres_password,
+            self.postgres_host,
+            self.postgres_port,
+            database_name
+        )
+    }
 }
