@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS access_policy_rules (
 );
 
 CREATE TABLE IF NOT EXISTS access_authorization_decision_audit (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v7(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id UUID NOT NULL,
     principal_id UUID NOT NULL,
     resource_name TEXT NOT NULL,

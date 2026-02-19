@@ -1,5 +1,5 @@
 CREATE TABLE IF NOT EXISTS data_api_audit_logs (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v7(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id UUID NOT NULL,
     request_id TEXT,
     schema_name TEXT NOT NULL,
