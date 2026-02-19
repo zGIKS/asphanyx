@@ -52,6 +52,7 @@ pub async fn build_data_api_router(config: &AppConfig) -> Result<Router, String>
     ));
     let tenant_pool_cache = Arc::new(SqlxTenantPoolCacheRepositoryImpl::new());
     let repository = Arc::new(SqlxDataApiRepositoryImpl::new(
+        admin_pool.clone(),
         tenant_connection_resolver,
         tenant_pool_cache,
     ));

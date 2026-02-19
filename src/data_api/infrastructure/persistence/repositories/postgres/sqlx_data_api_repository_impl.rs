@@ -21,16 +21,19 @@ use crate::data_api::{
 };
 
 pub struct SqlxDataApiRepositoryImpl {
+    admin_pool: PgPool,
     tenant_connection_resolver: Arc<dyn TenantConnectionResolverRepository>,
     tenant_pool_cache: Arc<dyn TenantPoolCacheRepository>,
 }
 
 impl SqlxDataApiRepositoryImpl {
     pub fn new(
+        admin_pool: PgPool,
         tenant_connection_resolver: Arc<dyn TenantConnectionResolverRepository>,
         tenant_pool_cache: Arc<dyn TenantPoolCacheRepository>,
     ) -> Self {
         Self {
+            admin_pool,
             tenant_connection_resolver,
             tenant_pool_cache,
         }
@@ -80,96 +83,55 @@ impl DataApiRepository for SqlxDataApiRepositoryImpl {
     ) -> Result<(), DataApiDomainError> {
         let tenant_pool = self.resolve_tenant_pool(tenant_id).await?;
 
-        let create_table_metadata_statement = r#"
-            CREATE TABLE IF NOT EXISTS data_api_table_metadata (
-                schema_name TEXT NOT NULL,
-                table_name TEXT NOT NULL,
-                exposed BOOLEAN NOT NULL DEFAULT TRUE,
-                read_enabled BOOLEAN NOT NULL DEFAULT TRUE,
-                create_enabled BOOLEAN NOT NULL DEFAULT TRUE,
-                update_enabled BOOLEAN NOT NULL DEFAULT TRUE,
-                delete_enabled BOOLEAN NOT NULL DEFAULT TRUE,
-                introspect_enabled BOOLEAN NOT NULL DEFAULT TRUE,
-                authorization_mode TEXT NOT NULL DEFAULT 'authenticated',
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                PRIMARY KEY (schema_name, table_name)
+        let table_rows = sqlx::query(
+            r#"
+            SELECT table_name
+            FROM information_schema.tables
+            WHERE table_schema = $1
+                AND table_type = 'BASE TABLE'
+            ORDER BY table_name
+        "#,
+        )
+        .bind(schema_name)
+        .fetch_all(&tenant_pool)
+        .await
+        .map_err(|e| DataApiDomainError::InfrastructureError(e.to_string()))?;
+
+        for row in table_rows {
+            let table_name = row
+                .try_get::<String, _>("table_name")
+                .map_err(|e| DataApiDomainError::InfrastructureError(e.to_string()))?;
+
+            sqlx::query(
+                r#"
+                INSERT INTO data_api_table_metadata (
+                    tenant_id,
+                    schema_name,
+                    table_name,
+                    exposed,
+                    read_enabled,
+                    create_enabled,
+                    update_enabled,
+                    delete_enabled,
+                    introspect_enabled,
+                    authorization_mode
+                )
+                VALUES ($1, $2, $3, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, 'authenticated')
+                ON CONFLICT (tenant_id, schema_name, table_name) DO NOTHING
+            "#,
             )
-        "#;
-
-        let create_column_metadata_statement = r#"
-            CREATE TABLE IF NOT EXISTS data_api_column_metadata (
-                schema_name TEXT NOT NULL,
-                table_name TEXT NOT NULL,
-                column_name TEXT NOT NULL,
-                readable BOOLEAN NOT NULL DEFAULT TRUE,
-                writable BOOLEAN NOT NULL DEFAULT TRUE,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                PRIMARY KEY (schema_name, table_name, column_name)
-            )
-        "#;
-
-        sqlx::query(create_table_metadata_statement)
-            .execute(&tenant_pool)
-            .await
-            .map_err(|e| DataApiDomainError::InfrastructureError(e.to_string()))?;
-
-        sqlx::query(create_column_metadata_statement)
-            .execute(&tenant_pool)
-            .await
-            .map_err(|e| DataApiDomainError::InfrastructureError(e.to_string()))?;
-
-        let sync_table_statement = r#"
-            INSERT INTO data_api_table_metadata (
-                schema_name,
-                table_name,
-                exposed,
-                read_enabled,
-                create_enabled,
-                update_enabled,
-                delete_enabled,
-                introspect_enabled,
-                authorization_mode
-            )
-            SELECT
-                t.table_schema,
-                t.table_name,
-                TRUE,
-                TRUE,
-                TRUE,
-                TRUE,
-                TRUE,
-                TRUE,
-                'authenticated'
-            FROM information_schema.tables t
-            WHERE t.table_schema = $1
-                AND t.table_type = 'BASE TABLE'
-                AND t.table_name NOT IN ('data_api_table_metadata', 'data_api_column_metadata')
-            ON CONFLICT (schema_name, table_name) DO NOTHING
-        "#;
-
-        sqlx::query(sync_table_statement)
+            .bind(tenant_id.value())
             .bind(schema_name)
-            .execute(&tenant_pool)
+            .bind(&table_name)
+            .execute(&self.admin_pool)
             .await
             .map_err(|e| DataApiDomainError::InfrastructureError(e.to_string()))?;
 
-        let sync_columns_statement = r#"
-            INSERT INTO data_api_column_metadata (
-                schema_name,
-                table_name,
-                column_name,
-                readable,
-                writable
-            )
-            SELECT
-                c.table_schema,
-                c.table_name,
-                c.column_name,
-                TRUE,
-                CASE
-                    WHEN EXISTS (
+            let column_rows = sqlx::query(
+                r#"
+                SELECT
+                    c.column_name,
+                    EXISTS (
                         SELECT 1
                         FROM information_schema.table_constraints tc
                         INNER JOIN information_schema.key_column_usage kcu
@@ -180,25 +142,51 @@ impl DataApiRepository for SqlxDataApiRepositoryImpl {
                             AND tc.table_name = c.table_name
                             AND tc.constraint_type = 'PRIMARY KEY'
                             AND kcu.column_name = c.column_name
-                    ) THEN FALSE
-                    ELSE TRUE
-                END
-            FROM information_schema.columns c
-            WHERE c.table_schema = $1
-                AND c.table_name IN (
-                    SELECT table_name
-                    FROM data_api_table_metadata
-                    WHERE schema_name = $1
-                        AND exposed = TRUE
-                )
-            ON CONFLICT (schema_name, table_name, column_name) DO NOTHING
-        "#;
-
-        sqlx::query(sync_columns_statement)
+                    ) AS is_primary_key
+                FROM information_schema.columns c
+                WHERE c.table_schema = $1
+                    AND c.table_name = $2
+                ORDER BY c.ordinal_position
+            "#,
+            )
             .bind(schema_name)
-            .execute(&tenant_pool)
+            .bind(&table_name)
+            .fetch_all(&tenant_pool)
             .await
             .map_err(|e| DataApiDomainError::InfrastructureError(e.to_string()))?;
+
+            for column_row in column_rows {
+                let column_name = column_row
+                    .try_get::<String, _>("column_name")
+                    .map_err(|e| DataApiDomainError::InfrastructureError(e.to_string()))?;
+                let is_primary_key = column_row
+                    .try_get::<bool, _>("is_primary_key")
+                    .unwrap_or(false);
+
+                sqlx::query(
+                    r#"
+                    INSERT INTO data_api_column_metadata (
+                        tenant_id,
+                        schema_name,
+                        table_name,
+                        column_name,
+                        readable,
+                        writable
+                    )
+                    VALUES ($1, $2, $3, $4, TRUE, $5)
+                    ON CONFLICT (tenant_id, schema_name, table_name, column_name) DO NOTHING
+                "#,
+                )
+                .bind(tenant_id.value())
+                .bind(schema_name)
+                .bind(&table_name)
+                .bind(column_name)
+                .bind(!is_primary_key)
+                .execute(&self.admin_pool)
+                .await
+                .map_err(|e| DataApiDomainError::InfrastructureError(e.to_string()))?;
+            }
+        }
 
         Ok(())
     }
@@ -209,8 +197,6 @@ impl DataApiRepository for SqlxDataApiRepositoryImpl {
         schema_name: &str,
         table_name: &str,
     ) -> Result<TableAccessMetadata, DataApiDomainError> {
-        let tenant_pool = self.resolve_tenant_pool(tenant_id).await?;
-
         let statement = r#"
             SELECT
                 exposed,
@@ -221,14 +207,16 @@ impl DataApiRepository for SqlxDataApiRepositoryImpl {
                 introspect_enabled,
                 authorization_mode
             FROM data_api_table_metadata
-            WHERE schema_name = $1
-                AND table_name = $2
+            WHERE tenant_id = $1
+                AND schema_name = $2
+                AND table_name = $3
         "#;
 
         let row = sqlx::query(statement)
+            .bind(tenant_id.value())
             .bind(schema_name)
             .bind(table_name)
-            .fetch_optional(&tenant_pool)
+            .fetch_optional(&self.admin_pool)
             .await
             .map_err(|e| DataApiDomainError::InfrastructureError(e.to_string()))?
             .ok_or(DataApiDomainError::TableNotAllowed)?;
@@ -254,19 +242,20 @@ impl DataApiRepository for SqlxDataApiRepositoryImpl {
         schema_name: &str,
         table_name: &str,
     ) -> Result<Vec<String>, DataApiDomainError> {
-        let tenant_pool = self.resolve_tenant_pool(tenant_id).await?;
         let statement = r#"
             SELECT column_name
             FROM data_api_column_metadata
-            WHERE schema_name = $1
-                AND table_name = $2
+            WHERE tenant_id = $1
+                AND schema_name = $2
+                AND table_name = $3
                 AND writable = TRUE
         "#;
 
         let rows = sqlx::query(statement)
+            .bind(tenant_id.value())
             .bind(schema_name)
             .bind(table_name)
-            .fetch_all(&tenant_pool)
+            .fetch_all(&self.admin_pool)
             .await
             .map_err(|e| DataApiDomainError::InfrastructureError(e.to_string()))?;
 
@@ -281,7 +270,6 @@ impl DataApiRepository for SqlxDataApiRepositoryImpl {
         tenant_id: &TenantId,
         schema_name: &str,
     ) -> Result<Vec<TableAccessCatalogEntry>, DataApiDomainError> {
-        let tenant_pool = self.resolve_tenant_pool(tenant_id).await?;
         let statement = r#"
             SELECT
                 table_name,
@@ -293,13 +281,15 @@ impl DataApiRepository for SqlxDataApiRepositoryImpl {
                 introspect_enabled,
                 authorization_mode
             FROM data_api_table_metadata
-            WHERE schema_name = $1
+            WHERE tenant_id = $1
+                AND schema_name = $2
             ORDER BY table_name
         "#;
 
         let rows = sqlx::query(statement)
+            .bind(tenant_id.value())
             .bind(schema_name)
-            .fetch_all(&tenant_pool)
+            .fetch_all(&self.admin_pool)
             .await
             .map_err(|e| DataApiDomainError::InfrastructureError(e.to_string()))?;
 
@@ -339,9 +329,9 @@ impl DataApiRepository for SqlxDataApiRepositoryImpl {
         table_name: &str,
         criteria: TableMetadataUpdateCriteria,
     ) -> Result<TableAccessMetadata, DataApiDomainError> {
-        let tenant_pool = self.resolve_tenant_pool(tenant_id).await?;
         let statement = r#"
             INSERT INTO data_api_table_metadata (
+                tenant_id,
                 schema_name,
                 table_name,
                 exposed,
@@ -352,8 +342,8 @@ impl DataApiRepository for SqlxDataApiRepositoryImpl {
                 introspect_enabled,
                 authorization_mode
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-            ON CONFLICT (schema_name, table_name)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            ON CONFLICT (tenant_id, schema_name, table_name)
             DO UPDATE SET
                 exposed = EXCLUDED.exposed,
                 read_enabled = EXCLUDED.read_enabled,
@@ -374,6 +364,7 @@ impl DataApiRepository for SqlxDataApiRepositoryImpl {
         "#;
 
         let row = sqlx::query(statement)
+            .bind(tenant_id.value())
             .bind(schema_name)
             .bind(table_name)
             .bind(criteria.exposed)
@@ -383,7 +374,7 @@ impl DataApiRepository for SqlxDataApiRepositoryImpl {
             .bind(criteria.delete_enabled)
             .bind(criteria.introspect_enabled)
             .bind(criteria.authorization_mode)
-            .fetch_one(&tenant_pool)
+            .fetch_one(&self.admin_pool)
             .await
             .map_err(|e| DataApiDomainError::InfrastructureError(e.to_string()))?;
 
@@ -410,17 +401,17 @@ impl DataApiRepository for SqlxDataApiRepositoryImpl {
         column_name: &str,
         criteria: ColumnMetadataUpdateCriteria,
     ) -> Result<(), DataApiDomainError> {
-        let tenant_pool = self.resolve_tenant_pool(tenant_id).await?;
         let statement = r#"
             INSERT INTO data_api_column_metadata (
+                tenant_id,
                 schema_name,
                 table_name,
                 column_name,
                 readable,
                 writable
             )
-            VALUES ($1, $2, $3, $4, $5)
-            ON CONFLICT (schema_name, table_name, column_name)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            ON CONFLICT (tenant_id, schema_name, table_name, column_name)
             DO UPDATE SET
                 readable = EXCLUDED.readable,
                 writable = EXCLUDED.writable,
@@ -428,12 +419,13 @@ impl DataApiRepository for SqlxDataApiRepositoryImpl {
         "#;
 
         sqlx::query(statement)
+            .bind(tenant_id.value())
             .bind(schema_name)
             .bind(table_name)
             .bind(column_name)
             .bind(criteria.readable)
             .bind(criteria.writable)
-            .execute(&tenant_pool)
+            .execute(&self.admin_pool)
             .await
             .map_err(|e| DataApiDomainError::InfrastructureError(e.to_string()))?;
 
