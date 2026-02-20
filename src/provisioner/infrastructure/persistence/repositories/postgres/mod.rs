@@ -1,3 +1,4 @@
 pub mod sqlx_postgres_database_administration_repository_impl;
 pub mod sqlx_provisioned_database_repository_impl;
 pub mod sqlx_provisioning_audit_event_repository_impl;
+pub mod sqlx_tenant_ownership_repository_impl;

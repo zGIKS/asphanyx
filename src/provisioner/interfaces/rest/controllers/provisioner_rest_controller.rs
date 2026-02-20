@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{collections::HashSet, sync::Arc};
 
 use argon2::{
     Argon2,
@@ -7,35 +7,46 @@ use argon2::{
 use axum::{
     Json, Router,
     extract::{Path, Query, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     routing::{delete, get, patch, post},
 };
 use rand::{Rng, distributions::Alphanumeric, thread_rng};
+use uuid::Uuid;
 use validator::Validate;
 
-use crate::provisioner::{
-    domain::{
-        model::{
-            commands::{
-                change_provisioned_database_password_command::ChangeProvisionedDatabasePasswordCommand,
-                create_provisioned_database_command::CreateProvisionedDatabaseCommand,
-                delete_provisioned_database_command::DeleteProvisionedDatabaseCommand,
-            },
-            enums::provisioner_domain_error::ProvisionerDomainError,
-            queries::list_provisioned_databases_query::ListProvisionedDatabasesQuery,
-        },
-        services::{
-            database_provisioning_command_service::DatabaseProvisioningCommandService,
-            database_provisioning_query_service::DatabaseProvisioningQueryService,
-        },
+use crate::{
+    iam_integration::interfaces::acl::iam_authentication_facade::{
+        IamAuthenticationFacade, IamIntegrationError,
     },
-    interfaces::rest::resources::{
-        change_provisioned_database_password_request_resource::ChangeProvisionedDatabasePasswordRequestResource,
-        create_provisioned_database_request_resource::{
-            CreateProvisionedDatabaseRequestResource, ListProvisionedDatabasesQueryResource,
+    provisioner::{
+        domain::{
+            model::{
+                commands::{
+                    change_provisioned_database_password_command::ChangeProvisionedDatabasePasswordCommand,
+                    create_provisioned_database_command::CreateProvisionedDatabaseCommand,
+                    delete_provisioned_database_command::DeleteProvisionedDatabaseCommand,
+                },
+                enums::provisioner_domain_error::ProvisionerDomainError,
+                queries::list_provisioned_databases_query::ListProvisionedDatabasesQuery,
+                value_objects::provisioned_database_name::ProvisionedDatabaseName,
+            },
+            services::{
+                database_provisioning_command_service::DatabaseProvisioningCommandService,
+                database_provisioning_query_service::DatabaseProvisioningQueryService,
+            },
         },
-        error_response_resource::ErrorResponseResource,
-        provisioned_database_resource::ProvisionedDatabaseResource,
+        infrastructure::persistence::repositories::{
+            provisioned_database_repository::ProvisionedDatabaseRepository,
+            tenant_ownership_repository::TenantOwnershipRepository,
+        },
+        interfaces::rest::resources::{
+            change_provisioned_database_password_request_resource::ChangeProvisionedDatabasePasswordRequestResource,
+            create_provisioned_database_request_resource::{
+                CreateProvisionedDatabaseRequestResource, ListProvisionedDatabasesQueryResource,
+            },
+            error_response_resource::ErrorResponseResource,
+            provisioned_database_resource::ProvisionedDatabaseResource,
+        },
     },
 };
 
@@ -43,6 +54,9 @@ use crate::provisioner::{
 pub struct ProvisionerRestControllerState {
     pub command_service: Arc<dyn DatabaseProvisioningCommandService>,
     pub query_service: Arc<dyn DatabaseProvisioningQueryService>,
+    pub metadata_repository: Arc<dyn ProvisionedDatabaseRepository>,
+    pub tenant_ownership_repository: Arc<dyn TenantOwnershipRepository>,
+    pub iam_authentication_facade: Arc<dyn IamAuthenticationFacade>,
 }
 
 pub fn router(state: ProvisionerRestControllerState) -> Router {
@@ -64,21 +78,27 @@ pub fn router(state: ProvisionerRestControllerState) -> Router {
     post,
     path = "/provisioner/databases",
     tag = "provisioner",
+    params(("authorization" = String, Header, description = "Bearer access token")),
     request_body = CreateProvisionedDatabaseRequestResource,
     responses(
         (status = 201, description = "Provisioned database created", body = ProvisionedDatabaseResource),
         (status = 400, description = "Invalid payload", body = ErrorResponseResource),
+        (status = 401, description = "Invalid or missing bearer token", body = ErrorResponseResource),
         (status = 409, description = "Database already exists", body = ErrorResponseResource),
+        (status = 503, description = "IAM unavailable", body = ErrorResponseResource),
         (status = 500, description = "Infrastructure failure", body = ErrorResponseResource)
     )
 )]
 pub async fn create_provisioned_database(
     State(state): State<ProvisionerRestControllerState>,
+    headers: HeaderMap,
     Json(request): Json<CreateProvisionedDatabaseRequestResource>,
 ) -> Result<
     (StatusCode, Json<ProvisionedDatabaseResource>),
     (StatusCode, Json<ErrorResponseResource>),
 > {
+    let authenticated_user_id = authenticate_bearer_subject(&state, &headers).await?;
+
     if let Err(validation_error) = request.validate() {
         return Err((
             StatusCode::BAD_REQUEST,
@@ -105,6 +125,14 @@ pub async fn create_provisioned_database(
         .handle_create(command)
         .await
         .map_err(map_domain_error)?;
+
+    let tenant_id = created.id().value();
+
+    state
+        .tenant_ownership_repository
+        .save_ownership(tenant_id, authenticated_user_id)
+        .await
+        .map_err(map_infra_error)?;
 
     Ok((
         StatusCode::CREATED,
@@ -157,19 +185,34 @@ fn hash_database_password(
     delete,
     path = "/provisioner/databases/{database_name}",
     tag = "provisioner",
-    params(("database_name" = String, Path, description = "Database identifier")),
+    params(
+        ("database_name" = String, Path, description = "Database identifier"),
+        ("authorization" = String, Header, description = "Bearer access token")
+    ),
     responses(
         (status = 204, description = "Provisioned database deleted"),
+        (status = 401, description = "Invalid or missing bearer token", body = ErrorResponseResource),
+        (status = 403, description = "Tenant does not belong to user", body = ErrorResponseResource),
         (status = 404, description = "Database not found", body = ErrorResponseResource),
         (status = 400, description = "Invalid database name", body = ErrorResponseResource),
+        (status = 503, description = "IAM unavailable", body = ErrorResponseResource),
         (status = 500, description = "Infrastructure failure", body = ErrorResponseResource)
     )
 )]
 pub async fn delete_provisioned_database(
     State(state): State<ProvisionerRestControllerState>,
     Path(database_name): Path<String>,
+    headers: HeaderMap,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponseResource>)> {
+    let authenticated_user_id = authenticate_bearer_subject(&state, &headers).await?;
+
     let command = DeleteProvisionedDatabaseCommand::new(database_name).map_err(map_domain_error)?;
+    enforce_database_ownership(
+        &state,
+        command.database_name().value(),
+        authenticated_user_id,
+    )
+    .await?;
 
     state
         .command_service
@@ -184,20 +227,29 @@ pub async fn delete_provisioned_database(
     patch,
     path = "/provisioner/databases/{database_name}/password",
     tag = "provisioner",
-    params(("database_name" = String, Path, description = "Database identifier")),
+    params(
+        ("database_name" = String, Path, description = "Database identifier"),
+        ("authorization" = String, Header, description = "Bearer access token")
+    ),
     request_body = ChangeProvisionedDatabasePasswordRequestResource,
     responses(
         (status = 204, description = "Database password changed"),
+        (status = 401, description = "Invalid or missing bearer token", body = ErrorResponseResource),
+        (status = 403, description = "Tenant does not belong to user", body = ErrorResponseResource),
         (status = 400, description = "Invalid payload", body = ErrorResponseResource),
         (status = 404, description = "Database not found", body = ErrorResponseResource),
+        (status = 503, description = "IAM unavailable", body = ErrorResponseResource),
         (status = 500, description = "Infrastructure failure", body = ErrorResponseResource)
     )
 )]
 pub async fn change_provisioned_database_password(
     State(state): State<ProvisionerRestControllerState>,
     Path(database_name): Path<String>,
+    headers: HeaderMap,
     Json(request): Json<ChangeProvisionedDatabasePasswordRequestResource>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponseResource>)> {
+    let authenticated_user_id = authenticate_bearer_subject(&state, &headers).await?;
+
     if let Err(validation_error) = request.validate() {
         return Err((
             StatusCode::BAD_REQUEST,
@@ -206,6 +258,8 @@ pub async fn change_provisioned_database_password(
             }),
         ));
     }
+
+    enforce_database_ownership(&state, &database_name, authenticated_user_id).await?;
 
     let password_hash = hash_database_password(&request.password)?;
     let command = ChangeProvisionedDatabasePasswordCommand::new(
@@ -228,17 +282,32 @@ pub async fn change_provisioned_database_password(
     get,
     path = "/provisioner/databases",
     tag = "provisioner",
-    params(("include_deleted" = Option<bool>, Query, description = "Include deleted entries")),
+    params(
+        ("include_deleted" = Option<bool>, Query, description = "Include deleted entries"),
+        ("authorization" = String, Header, description = "Bearer access token")
+    ),
     responses(
         (status = 200, description = "Provisioned database metadata", body = [ProvisionedDatabaseResource]),
+        (status = 401, description = "Invalid or missing bearer token", body = ErrorResponseResource),
+        (status = 503, description = "IAM unavailable", body = ErrorResponseResource),
         (status = 500, description = "Infrastructure failure", body = ErrorResponseResource)
     )
 )]
 pub async fn list_provisioned_databases(
     State(state): State<ProvisionerRestControllerState>,
+    headers: HeaderMap,
     Query(query): Query<ListProvisionedDatabasesQueryResource>,
 ) -> Result<Json<Vec<ProvisionedDatabaseResource>>, (StatusCode, Json<ErrorResponseResource>)> {
+    let authenticated_user_id = authenticate_bearer_subject(&state, &headers).await?;
+
     let query = ListProvisionedDatabasesQuery::new(query.include_deleted.unwrap_or(false));
+    let tenant_ids = state
+        .tenant_ownership_repository
+        .list_tenant_ids_by_user(authenticated_user_id)
+        .await
+        .map_err(map_infra_error)?;
+    let tenant_ids = tenant_ids.into_iter().collect::<HashSet<Uuid>>();
+
     let databases = state
         .query_service
         .handle_list(query)
@@ -247,6 +316,7 @@ pub async fn list_provisioned_databases(
 
     let payload = databases
         .into_iter()
+        .filter(|database| tenant_ids.contains(&database.id().value()))
         .map(|database| ProvisionedDatabaseResource {
             id: database.id().value().to_string(),
             database_name: database.database_name().value().to_string(),
@@ -257,6 +327,108 @@ pub async fn list_provisioned_databases(
         .collect();
 
     Ok(Json(payload))
+}
+
+async fn enforce_database_ownership(
+    state: &ProvisionerRestControllerState,
+    database_name: &str,
+    user_id: Uuid,
+) -> Result<(), (StatusCode, Json<ErrorResponseResource>)> {
+    let database_name_vo =
+        ProvisionedDatabaseName::new(database_name.to_string()).map_err(map_domain_error)?;
+
+    let database = state
+        .metadata_repository
+        .find_by_name(&database_name_vo)
+        .await
+        .map_err(map_domain_error)?
+        .ok_or_else(|| map_domain_error(ProvisionerDomainError::DatabaseNotFound))?;
+
+    let tenant_id = database.id().value();
+
+    let is_owner = state
+        .tenant_ownership_repository
+        .exists_ownership(tenant_id, user_id)
+        .await
+        .map_err(map_infra_error)?;
+
+    if !is_owner {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponseResource {
+                message: "tenant does not belong to authenticated user".to_string(),
+            }),
+        ));
+    }
+
+    Ok(())
+}
+
+async fn authenticate_bearer_subject(
+    state: &ProvisionerRestControllerState,
+    headers: &HeaderMap,
+) -> Result<Uuid, (StatusCode, Json<ErrorResponseResource>)> {
+    let token = extract_bearer_token(headers)?;
+
+    let verification = state
+        .iam_authentication_facade
+        .verify_access_token(&token)
+        .await
+        .map_err(map_iam_error)?;
+
+    Ok(verification.subject_id.value())
+}
+
+fn extract_bearer_token(
+    headers: &HeaderMap,
+) -> Result<String, (StatusCode, Json<ErrorResponseResource>)> {
+    let authorization = headers
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .ok_or_else(|| {
+            (
+                StatusCode::UNAUTHORIZED,
+                Json(ErrorResponseResource {
+                    message: "missing authorization header".to_string(),
+                }),
+            )
+        })?;
+
+    let token = authorization
+        .strip_prefix("Bearer ")
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            (
+                StatusCode::UNAUTHORIZED,
+                Json(ErrorResponseResource {
+                    message: "authorization header must be Bearer token".to_string(),
+                }),
+            )
+        })?;
+
+    Ok(token.to_string())
+}
+
+fn map_iam_error(error: IamIntegrationError) -> (StatusCode, Json<ErrorResponseResource>) {
+    match error {
+        IamIntegrationError::InvalidToken(message) => (
+            StatusCode::UNAUTHORIZED,
+            Json(ErrorResponseResource { message }),
+        ),
+        IamIntegrationError::Unavailable(message) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ErrorResponseResource { message }),
+        ),
+    }
+}
+
+fn map_infra_error(message: String) -> (StatusCode, Json<ErrorResponseResource>) {
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(ErrorResponseResource { message }),
+    )
 }
 
 fn map_domain_error(error: ProvisionerDomainError) -> (StatusCode, Json<ErrorResponseResource>) {

@@ -34,6 +34,8 @@ use crate::{
             DataApiRestControllerState, router,
         },
     },
+    iam_integration::application::acl::grpc_iam_authentication_facade_impl::GrpcIamAuthenticationFacadeImpl,
+    provisioner::infrastructure::persistence::repositories::postgres::sqlx_tenant_ownership_repository_impl::SqlxTenantOwnershipRepositoryImpl,
 };
 
 pub mod application;
@@ -62,7 +64,16 @@ pub async fn build_data_api_router(config: &AppConfig) -> Result<Router, String>
         Arc::new(SqlxRoleAssignmentRepositoryImpl::new(admin_pool.clone()));
     let acl_policy_repository = Arc::new(SqlxPolicyRuleRepositoryImpl::new(admin_pool.clone()));
     let acl_audit_repository = Arc::new(SqlxAuthorizationDecisionAuditRepositoryImpl::new(
-        admin_pool,
+        admin_pool.clone(),
+    ));
+    let tenant_ownership_repository =
+        Arc::new(SqlxTenantOwnershipRepositoryImpl::new(admin_pool.clone()));
+    let iam_authentication_facade = Arc::new(GrpcIamAuthenticationFacadeImpl::new(
+        config.iam_grpc_endpoint.clone(),
+        std::time::Duration::from_millis(config.iam_grpc_timeout_ms),
+        std::time::Duration::from_secs(config.iam_token_cache_ttl_seconds),
+        config.iam_grpc_circuit_breaker_failure_threshold,
+        std::time::Duration::from_secs(config.iam_grpc_circuit_breaker_open_seconds),
     ));
     let acl_query_service = Arc::new(AccessControlQueryServiceImpl::new(
         acl_policy_repository.clone(),
@@ -94,5 +105,7 @@ pub async fn build_data_api_router(config: &AppConfig) -> Result<Router, String>
         command_service,
         query_service,
         repository,
+        iam_authentication_facade,
+        tenant_ownership_repository,
     }))
 }

@@ -5,6 +5,7 @@ use sqlx::{PgPool, migrate};
 
 use crate::{
     config::app_config::AppConfig,
+    iam_integration::application::acl::grpc_iam_authentication_facade_impl::GrpcIamAuthenticationFacadeImpl,
     provisioner::{
         application::{
             command_services::database_provisioning_command_service_impl::DatabaseProvisioningCommandServiceImpl,
@@ -14,6 +15,7 @@ use crate::{
             sqlx_postgres_database_administration_repository_impl::SqlxPostgresDatabaseAdministrationRepositoryImpl,
             sqlx_provisioned_database_repository_impl::SqlxProvisionedDatabaseRepositoryImpl,
             sqlx_provisioning_audit_event_repository_impl::SqlxProvisioningAuditEventRepositoryImpl,
+            sqlx_tenant_ownership_repository_impl::SqlxTenantOwnershipRepositoryImpl,
         },
         interfaces::rest::controllers::provisioner_rest_controller::{
             ProvisionerRestControllerState, router,
@@ -46,6 +48,15 @@ pub async fn build_provisioner_router(config: &AppConfig) -> Result<Router, Stri
     let audit_event_repository = Arc::new(SqlxProvisioningAuditEventRepositoryImpl::new(
         admin_pool.clone(),
     ));
+    let tenant_ownership_repository =
+        Arc::new(SqlxTenantOwnershipRepositoryImpl::new(admin_pool.clone()));
+    let iam_authentication_facade = Arc::new(GrpcIamAuthenticationFacadeImpl::new(
+        config.iam_grpc_endpoint.clone(),
+        std::time::Duration::from_millis(config.iam_grpc_timeout_ms),
+        std::time::Duration::from_secs(config.iam_token_cache_ttl_seconds),
+        config.iam_grpc_circuit_breaker_failure_threshold,
+        std::time::Duration::from_secs(config.iam_grpc_circuit_breaker_open_seconds),
+    ));
 
     let command_service = Arc::new(DatabaseProvisioningCommandServiceImpl::new(
         metadata_repository.clone(),
@@ -53,11 +64,14 @@ pub async fn build_provisioner_router(config: &AppConfig) -> Result<Router, Stri
         audit_event_repository,
     ));
     let query_service = Arc::new(DatabaseProvisioningQueryServiceImpl::new(
-        metadata_repository,
+        metadata_repository.clone(),
     ));
 
     Ok(router(ProvisionerRestControllerState {
         command_service,
         query_service,
+        metadata_repository: metadata_repository.clone(),
+        tenant_ownership_repository,
+        iam_authentication_facade,
     }))
 }

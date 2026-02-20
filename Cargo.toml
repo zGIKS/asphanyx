@@ -21,3 +21,9 @@ regex = "1"
 lazy_static = "1"
 rand = "0.8"
 argon2 = "0.5"
+tonic = "0.12"
+prost = "0.13"
+sha2 = "0.10"
+
+[build-dependencies]
+tonic-build = "0.12"

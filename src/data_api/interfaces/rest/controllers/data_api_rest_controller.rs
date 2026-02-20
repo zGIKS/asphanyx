@@ -1,8 +1,4 @@
-use std::{
-    collections::{BTreeMap, hash_map::DefaultHasher},
-    hash::{Hash, Hasher},
-    sync::Arc,
-};
+use std::{collections::BTreeMap, sync::Arc};
 
 use axum::{
     Json, Router,
@@ -50,12 +46,20 @@ use crate::data_api::{
         data_api_table_access_metadata_update_request_resource::DataApiTableAccessMetadataUpdateRequestResource,
     },
 };
+use crate::{
+    iam_integration::interfaces::acl::iam_authentication_facade::{
+        IamAuthenticationFacade, IamIntegrationError,
+    },
+    provisioner::infrastructure::persistence::repositories::tenant_ownership_repository::TenantOwnershipRepository,
+};
 
 #[derive(Clone)]
 pub struct DataApiRestControllerState {
     pub command_service: Arc<dyn DataApiCommandService>,
     pub query_service: Arc<dyn DataApiQueryService>,
     pub repository: Arc<dyn DataApiRepository>,
+    pub iam_authentication_facade: Arc<dyn IamAuthenticationFacade>,
+    pub tenant_ownership_repository: Arc<dyn TenantOwnershipRepository>,
 }
 
 pub fn router(state: DataApiRestControllerState) -> Router {
@@ -85,7 +89,7 @@ pub fn router(state: DataApiRestControllerState) -> Router {
     params(
         ("x-tenant-id" = String, Header, description = "Tenant id"),
         ("x-tenant-schema" = Option<String>, Header, description = "Schema opcional por tenant"),
-        ("authorization" = String, Header, description = "JWT o API key del principal"),
+        ("authorization" = String, Header, description = "Bearer access token"),
         ("x-request-id" = Option<String>, Header, description = "Correlation id opcional")
     ),
     responses(
@@ -101,7 +105,7 @@ pub async fn list_access_catalog(
     Json<Vec<DataApiTableAccessCatalogEntryResource>>,
     (StatusCode, Json<DataApiErrorResponseResource>),
 > {
-    let auth = parse_auth_headers(&headers)?;
+    let auth = parse_auth_context(&state, &headers).await?;
     let tenant_id = parse_tenant_id(&auth.tenant_id)?;
 
     state
@@ -142,7 +146,7 @@ pub async fn list_access_catalog(
         ("table_name" = String, Path, description = "Nombre de tabla"),
         ("x-tenant-id" = String, Header, description = "Tenant id"),
         ("x-tenant-schema" = Option<String>, Header, description = "Schema opcional por tenant"),
-        ("authorization" = String, Header, description = "JWT o API key del principal")
+        ("authorization" = String, Header, description = "Bearer access token")
     ),
     request_body = DataApiTableAccessMetadataUpdateRequestResource,
     responses(
@@ -161,7 +165,7 @@ pub async fn upsert_table_access_metadata(
     Json<DataApiTableAccessCatalogEntryResource>,
     (StatusCode, Json<DataApiErrorResponseResource>),
 > {
-    let auth = parse_auth_headers(&headers)?;
+    let auth = parse_auth_context(&state, &headers).await?;
     if !matches!(
         resource.authorization_mode.as_str(),
         "acl" | "authenticated"
@@ -224,7 +228,7 @@ pub async fn upsert_table_access_metadata(
         ("column_name" = String, Path, description = "Nombre de columna"),
         ("x-tenant-id" = String, Header, description = "Tenant id"),
         ("x-tenant-schema" = Option<String>, Header, description = "Schema opcional por tenant"),
-        ("authorization" = String, Header, description = "JWT o API key del principal")
+        ("authorization" = String, Header, description = "Bearer access token")
     ),
     request_body = DataApiColumnAccessMetadataUpdateRequestResource,
     responses(
@@ -240,7 +244,7 @@ pub async fn upsert_column_access_metadata(
     headers: HeaderMap,
     Json(resource): Json<DataApiColumnAccessMetadataUpdateRequestResource>,
 ) -> Result<StatusCode, (StatusCode, Json<DataApiErrorResponseResource>)> {
-    let auth = parse_auth_headers(&headers)?;
+    let auth = parse_auth_context(&state, &headers).await?;
     let tenant_id = parse_tenant_id(&auth.tenant_id)?;
 
     state
@@ -275,7 +279,7 @@ pub async fn upsert_column_access_metadata(
         ("table_name" = String, Path, description = "Nombre de tabla expuesta"),
         ("x-tenant-id" = String, Header, description = "Tenant id"),
         ("x-tenant-schema" = Option<String>, Header, description = "Schema opcional por tenant"),
-        ("authorization" = String, Header, description = "JWT o API key del principal"),
+        ("authorization" = String, Header, description = "Bearer access token"),
         ("x-request-id" = Option<String>, Header, description = "Correlation id opcional"),
         ("x-subject-owner-id" = Option<String>, Header, description = "Owner id del sujeto"),
         ("x-row-owner-id" = Option<String>, Header, description = "Owner id del recurso"),
@@ -300,7 +304,7 @@ pub async fn list_rows(
     Query(params): Query<BTreeMap<String, String>>,
     headers: HeaderMap,
 ) -> Result<Json<Value>, (StatusCode, Json<DataApiErrorResponseResource>)> {
-    let auth = parse_auth_headers(&headers)?;
+    let auth = parse_auth_context(&state, &headers).await?;
 
     let fields = params
         .get("fields")
@@ -371,7 +375,7 @@ pub async fn list_rows(
         ("row_id" = String, Path, description = "ID lógico (columna PK)"),
         ("x-tenant-id" = String, Header, description = "Tenant id"),
         ("x-tenant-schema" = Option<String>, Header, description = "Schema opcional por tenant"),
-        ("authorization" = String, Header, description = "JWT o API key del principal"),
+        ("authorization" = String, Header, description = "Bearer access token"),
         ("x-request-id" = Option<String>, Header, description = "Correlation id opcional"),
         ("x-subject-owner-id" = Option<String>, Header, description = "Owner id del sujeto"),
         ("x-row-owner-id" = Option<String>, Header, description = "Owner id del recurso")
@@ -389,7 +393,7 @@ pub async fn get_row(
     Path((table_name, row_id)): Path<(String, String)>,
     headers: HeaderMap,
 ) -> Result<Json<Value>, (StatusCode, Json<DataApiErrorResponseResource>)> {
-    let auth = parse_auth_headers(&headers)?;
+    let auth = parse_auth_context(&state, &headers).await?;
 
     let query = GetRowQuery::new(GetRowQueryParts {
         api_version: "v1".to_string(),
@@ -422,7 +426,7 @@ pub async fn get_row(
         ("table_name" = String, Path, description = "Nombre de tabla"),
         ("x-tenant-id" = String, Header, description = "Tenant id"),
         ("x-tenant-schema" = Option<String>, Header, description = "Schema opcional por tenant"),
-        ("authorization" = String, Header, description = "JWT o API key del principal"),
+        ("authorization" = String, Header, description = "Bearer access token"),
         ("x-request-id" = Option<String>, Header, description = "Correlation id opcional"),
         ("x-subject-owner-id" = Option<String>, Header, description = "Owner id del sujeto"),
         ("x-row-owner-id" = Option<String>, Header, description = "Owner id del recurso")
@@ -451,7 +455,7 @@ pub async fn create_row(
         ));
     }
 
-    let auth = parse_auth_headers(&headers)?;
+    let auth = parse_auth_context(&state, &headers).await?;
 
     let command = CreateRowCommand::new(CreateRowCommandParts {
         api_version: "v1".to_string(),
@@ -485,7 +489,7 @@ pub async fn create_row(
         ("row_id" = String, Path, description = "ID lógico (columna PK)"),
         ("x-tenant-id" = String, Header, description = "Tenant id"),
         ("x-tenant-schema" = Option<String>, Header, description = "Schema opcional por tenant"),
-        ("authorization" = String, Header, description = "JWT o API key del principal"),
+        ("authorization" = String, Header, description = "Bearer access token"),
         ("x-request-id" = Option<String>, Header, description = "Correlation id opcional"),
         ("x-subject-owner-id" = Option<String>, Header, description = "Owner id del sujeto"),
         ("x-row-owner-id" = Option<String>, Header, description = "Owner id del recurso")
@@ -515,7 +519,7 @@ pub async fn patch_row(
         ));
     }
 
-    let auth = parse_auth_headers(&headers)?;
+    let auth = parse_auth_context(&state, &headers).await?;
 
     let command = PatchRowCommand::new(PatchRowCommandParts {
         api_version: "v1".to_string(),
@@ -550,7 +554,7 @@ pub async fn patch_row(
         ("row_id" = String, Path, description = "ID lógico (columna PK)"),
         ("x-tenant-id" = String, Header, description = "Tenant id"),
         ("x-tenant-schema" = Option<String>, Header, description = "Schema opcional por tenant"),
-        ("authorization" = String, Header, description = "JWT o API key del principal"),
+        ("authorization" = String, Header, description = "Bearer access token"),
         ("x-request-id" = Option<String>, Header, description = "Correlation id opcional"),
         ("x-subject-owner-id" = Option<String>, Header, description = "Owner id del sujeto"),
         ("x-row-owner-id" = Option<String>, Header, description = "Owner id del recurso")
@@ -568,7 +572,7 @@ pub async fn delete_row(
     Path((table_name, row_id)): Path<(String, String)>,
     headers: HeaderMap,
 ) -> Result<StatusCode, (StatusCode, Json<DataApiErrorResponseResource>)> {
-    let auth = parse_auth_headers(&headers)?;
+    let auth = parse_auth_context(&state, &headers).await?;
 
     let command = DeleteRowCommand::new(DeleteRowCommandParts {
         api_version: "v1".to_string(),
@@ -601,7 +605,7 @@ pub async fn delete_row(
         ("table_name" = String, Path, description = "Nombre de tabla"),
         ("x-tenant-id" = String, Header, description = "Tenant id"),
         ("x-tenant-schema" = Option<String>, Header, description = "Schema opcional por tenant"),
-        ("authorization" = String, Header, description = "JWT o API key del principal"),
+        ("authorization" = String, Header, description = "Bearer access token"),
         ("x-request-id" = Option<String>, Header, description = "Correlation id opcional"),
         ("x-subject-owner-id" = Option<String>, Header, description = "Owner id del sujeto"),
         ("x-row-owner-id" = Option<String>, Header, description = "Owner id del recurso")
@@ -617,7 +621,7 @@ pub async fn introspect_table_schema(
     Path(table_name): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<Value>, (StatusCode, Json<DataApiErrorResponseResource>)> {
-    let auth = parse_auth_headers(&headers)?;
+    let auth = parse_auth_context(&state, &headers).await?;
 
     let query = TableSchemaIntrospectionQuery::new(TableSchemaIntrospectionQueryParts {
         tenant_id: auth.tenant_id,
@@ -650,7 +654,8 @@ struct AuthContext {
     row_owner_id: Option<String>,
 }
 
-fn parse_auth_headers(
+async fn parse_auth_context(
+    state: &DataApiRestControllerState,
     headers: &HeaderMap,
 ) -> Result<AuthContext, (StatusCode, Json<DataApiErrorResponseResource>)> {
     let tenant_id = header_string(headers, "x-tenant-id")?;
@@ -665,29 +670,37 @@ fn parse_auth_headers(
         .and_then(|v| v.to_str().ok())
         .map(str::trim)
         .filter(|v| !v.is_empty())
-        .or_else(|| {
-            headers
-                .get("x-api-key")
-                .and_then(|v| v.to_str().ok())
-                .map(str::trim)
-                .filter(|v| !v.is_empty())
-        })
         .ok_or_else(|| map_domain_error(DataApiDomainError::MissingAuthentication))?;
 
-    let (raw_principal, principal_type) = if let Some(token) = authorization.strip_prefix("Bearer ")
-    {
+    let token = if let Some(token) = authorization.strip_prefix("Bearer ") {
         let token = token.trim();
         if token.is_empty() {
             return Err(map_domain_error(DataApiDomainError::InvalidAuthentication));
         }
-        (token.to_string(), DataApiPrincipalType::Jwt)
+        token.to_string()
     } else {
-        (authorization.to_string(), DataApiPrincipalType::ApiKey)
+        return Err(map_domain_error(DataApiDomainError::InvalidAuthentication));
     };
 
-    let principal = Uuid::parse_str(&raw_principal)
-        .map(|value| value.to_string())
-        .unwrap_or_else(|_| deterministic_principal_uuid(&raw_principal));
+    let verification = state
+        .iam_authentication_facade
+        .verify_access_token(&token)
+        .await
+        .map_err(map_iam_error)?;
+    let principal = verification.subject_id.as_string();
+
+    let tenant_uuid = Uuid::parse_str(&tenant_id)
+        .map_err(|_| map_domain_error(DataApiDomainError::InvalidTenantId))?;
+    let user_uuid = verification.subject_id.value();
+    let has_ownership = state
+        .tenant_ownership_repository
+        .exists_ownership(tenant_uuid, user_uuid)
+        .await
+        .map_err(map_infra_error)?;
+
+    if !has_ownership {
+        return Err(map_domain_error(DataApiDomainError::AccessDenied));
+    }
 
     let request_id = headers
         .get("x-request-id")
@@ -696,12 +709,7 @@ fn parse_auth_headers(
         .filter(|v| !v.is_empty())
         .map(str::to_string);
 
-    let subject_owner_id = headers
-        .get("x-subject-owner-id")
-        .and_then(|v| v.to_str().ok())
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
-        .map(str::to_string);
+    let subject_owner_id = Some(principal.clone());
 
     let row_owner_id = headers
         .get("x-row-owner-id")
@@ -714,31 +722,11 @@ fn parse_auth_headers(
         tenant_id,
         schema_name,
         principal,
-        principal_type,
+        principal_type: DataApiPrincipalType::Jwt,
         request_id,
         subject_owner_id,
         row_owner_id,
     })
-}
-
-fn deterministic_principal_uuid(raw: &str) -> String {
-    let mut hasher_a = DefaultHasher::new();
-    raw.hash(&mut hasher_a);
-    let part_a = hasher_a.finish();
-
-    let mut hasher_b = DefaultHasher::new();
-    (raw.len() as u64).hash(&mut hasher_b);
-    raw.as_bytes()
-        .iter()
-        .rev()
-        .for_each(|byte| byte.hash(&mut hasher_b));
-    let part_b = hasher_b.finish();
-
-    let mut bytes = [0u8; 16];
-    bytes[..8].copy_from_slice(&part_a.to_be_bytes());
-    bytes[8..].copy_from_slice(&part_b.to_be_bytes());
-
-    Uuid::from_bytes(bytes).to_string()
 }
 
 fn header_string(
@@ -762,6 +750,26 @@ fn parse_tenant_id(
 > {
     crate::data_api::domain::model::value_objects::tenant_id::TenantId::new(tenant_id.to_string())
         .map_err(map_domain_error)
+}
+
+fn map_iam_error(error: IamIntegrationError) -> (StatusCode, Json<DataApiErrorResponseResource>) {
+    match error {
+        IamIntegrationError::InvalidToken(message) => (
+            StatusCode::UNAUTHORIZED,
+            Json(DataApiErrorResponseResource { message }),
+        ),
+        IamIntegrationError::Unavailable(message) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(DataApiErrorResponseResource { message }),
+        ),
+    }
+}
+
+fn map_infra_error(message: String) -> (StatusCode, Json<DataApiErrorResponseResource>) {
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(DataApiErrorResponseResource { message }),
+    )
 }
 
 fn map_domain_error(error: DataApiDomainError) -> (StatusCode, Json<DataApiErrorResponseResource>) {
