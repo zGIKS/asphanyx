@@ -21,6 +21,8 @@ use crate::{
         application::{
             acl::access_control_facade_real_impl::AccessControlFacadeRealImpl,
             command_services::data_api_command_service_impl::DataApiCommandServiceImpl,
+            command_services::data_api_policy_template_command_service_impl::DataApiPolicyTemplateCommandServiceImpl,
+            query_services::data_api_policy_template_query_service_impl::DataApiPolicyTemplateQueryServiceImpl,
             query_services::data_api_query_service_impl::DataApiQueryServiceImpl,
         },
         infrastructure::persistence::repositories::postgres::{
@@ -96,14 +98,22 @@ pub async fn build_data_api_router(config: &AppConfig) -> Result<Router, String>
     ));
     let query_service = Arc::new(DataApiQueryServiceImpl::new(
         repository.clone(),
+        tenant_schema_resolver.clone(),
+        access_control_facade.clone(),
+        audit_log_repository.clone(),
+    ));
+    let policy_template_command_service = Arc::new(DataApiPolicyTemplateCommandServiceImpl::new(
+        repository.clone(),
         tenant_schema_resolver,
         access_control_facade,
-        audit_log_repository,
     ));
+    let policy_template_query_service = Arc::new(DataApiPolicyTemplateQueryServiceImpl::new());
 
     Ok(router(DataApiRestControllerState {
         command_service,
         query_service,
+        policy_template_command_service,
+        policy_template_query_service,
         repository,
         iam_authentication_facade,
         tenant_ownership_repository,

@@ -14,6 +14,9 @@ use crate::data_api::{
     domain::{
         model::{
             commands::{
+                apply_table_policy_template_command::{
+                    ApplyTablePolicyTemplateCommand, ApplyTablePolicyTemplateCommandParts,
+                },
                 create_row_command::{CreateRowCommand, CreateRowCommandParts},
                 delete_row_command::{DeleteRowCommand, DeleteRowCommandParts},
                 patch_row_command::{PatchRowCommand, PatchRowCommandParts},
@@ -24,6 +27,7 @@ use crate::data_api::{
             },
             queries::{
                 get_row_query::{GetRowQuery, GetRowQueryParts},
+                list_policy_templates_query::ListPolicyTemplatesQuery,
                 list_rows_query::{ListRowsQuery, ListRowsQueryParts},
                 table_schema_introspection_query::{
                     TableSchemaIntrospectionQuery, TableSchemaIntrospectionQueryParts,
@@ -32,6 +36,8 @@ use crate::data_api::{
         },
         services::{
             data_api_command_service::DataApiCommandService,
+            data_api_policy_template_command_service::DataApiPolicyTemplateCommandService,
+            data_api_policy_template_query_service::DataApiPolicyTemplateQueryService,
             data_api_query_service::DataApiQueryService,
         },
     },
@@ -39,11 +45,13 @@ use crate::data_api::{
         ColumnMetadataUpdateCriteria, DataApiRepository, TableMetadataUpdateCriteria,
     },
     interfaces::rest::resources::{
+        apply_table_policy_template_request_resource::ApplyTablePolicyTemplateRequestResource,
         data_api_column_access_metadata_update_request_resource::DataApiColumnAccessMetadataUpdateRequestResource,
         data_api_error_response_resource::DataApiErrorResponseResource,
         data_api_payload_resource::DataApiPayloadResource,
         data_api_table_access_catalog_resource::DataApiTableAccessCatalogEntryResource,
         data_api_table_access_metadata_update_request_resource::DataApiTableAccessMetadataUpdateRequestResource,
+        policy_template_catalog_resource::PolicyTemplateCatalogResource,
     },
 };
 use crate::{
@@ -57,6 +65,8 @@ use crate::{
 pub struct DataApiRestControllerState {
     pub command_service: Arc<dyn DataApiCommandService>,
     pub query_service: Arc<dyn DataApiQueryService>,
+    pub policy_template_command_service: Arc<dyn DataApiPolicyTemplateCommandService>,
+    pub policy_template_query_service: Arc<dyn DataApiPolicyTemplateQueryService>,
     pub repository: Arc<dyn DataApiRepository>,
     pub iam_authentication_facade: Arc<dyn IamAuthenticationFacade>,
     pub tenant_ownership_repository: Arc<dyn TenantOwnershipRepository>,
@@ -66,8 +76,16 @@ pub fn router(state: DataApiRestControllerState) -> Router {
     Router::new()
         .route("/api/v1/_metadata", get(list_access_catalog))
         .route(
+            "/api/v1/_metadata/policy-templates",
+            get(list_policy_templates),
+        )
+        .route(
             "/api/v1/_metadata/:table_name",
             put(upsert_table_access_metadata),
+        )
+        .route(
+            "/api/v1/_metadata/:table_name/policy-templates",
+            post(apply_table_policy_template),
         )
         .route(
             "/api/v1/_metadata/:table_name/columns/:column_name",
@@ -138,6 +156,123 @@ pub async fn list_access_catalog(
             })
             .collect(),
     ))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/_metadata/policy-templates",
+    tag = "data-api",
+    params(
+        ("x-tenant-id" = String, Header, description = "Tenant id"),
+        ("x-tenant-schema" = Option<String>, Header, description = "Schema opcional por tenant"),
+    ),
+    security(
+        ("bearerAuth" = [])
+    ),
+    responses(
+        (status = 200, description = "Catálogo de templates de políticas", body = [PolicyTemplateCatalogResource]),
+        (status = 401, description = "Auth faltante o inválida", body = DataApiErrorResponseResource),
+        (status = 403, description = "Sin permisos", body = DataApiErrorResponseResource),
+        (status = 500, description = "Error interno", body = DataApiErrorResponseResource),
+        (status = 503, description = "IAM no disponible", body = DataApiErrorResponseResource)
+    )
+)]
+pub async fn list_policy_templates(
+    State(state): State<DataApiRestControllerState>,
+    headers: HeaderMap,
+) -> Result<
+    Json<Vec<PolicyTemplateCatalogResource>>,
+    (StatusCode, Json<DataApiErrorResponseResource>),
+> {
+    let _ = parse_auth_context(&state, &headers).await?;
+
+    let templates = state
+        .policy_template_query_service
+        .handle_list_policy_templates(ListPolicyTemplatesQuery::new())
+        .await
+        .map_err(map_domain_error)?;
+
+    Ok(Json(
+        templates
+            .into_iter()
+            .map(|template| {
+                let (
+                    _,
+                    read_enabled,
+                    create_enabled,
+                    update_enabled,
+                    delete_enabled,
+                    introspect_enabled,
+                ) = template.metadata_flags();
+                PolicyTemplateCatalogResource {
+                    template_name: template.as_str().to_string(),
+                    authorization_mode: template.authorization_mode().to_string(),
+                    read_enabled,
+                    create_enabled,
+                    update_enabled,
+                    delete_enabled,
+                    introspect_enabled,
+                }
+            })
+            .collect(),
+    ))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/_metadata/{table_name}/policy-templates",
+    tag = "data-api",
+    params(
+        ("table_name" = String, Path, description = "Nombre de tabla"),
+        ("x-tenant-id" = String, Header, description = "Tenant id"),
+        ("x-tenant-schema" = Option<String>, Header, description = "Schema opcional por tenant"),
+    ),
+    request_body = ApplyTablePolicyTemplateRequestResource,
+    security(
+        ("bearerAuth" = [])
+    ),
+    responses(
+        (status = 204, description = "Template aplicado"),
+        (status = 400, description = "Request inválido", body = DataApiErrorResponseResource),
+        (status = 401, description = "Auth faltante o inválida", body = DataApiErrorResponseResource),
+        (status = 403, description = "Sin permisos", body = DataApiErrorResponseResource),
+        (status = 500, description = "Error interno", body = DataApiErrorResponseResource),
+        (status = 503, description = "IAM no disponible", body = DataApiErrorResponseResource)
+    )
+)]
+pub async fn apply_table_policy_template(
+    State(state): State<DataApiRestControllerState>,
+    Path(table_name): Path<String>,
+    headers: HeaderMap,
+    Json(resource): Json<ApplyTablePolicyTemplateRequestResource>,
+) -> Result<StatusCode, (StatusCode, Json<DataApiErrorResponseResource>)> {
+    if let Err(validation_error) = resource.validate() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(DataApiErrorResponseResource {
+                message: validation_error.to_string(),
+            }),
+        ));
+    }
+
+    let auth = parse_auth_context(&state, &headers).await?;
+
+    let command = ApplyTablePolicyTemplateCommand::new(ApplyTablePolicyTemplateCommandParts {
+        tenant_id: auth.tenant_id,
+        schema_name: auth.schema_name,
+        table_name,
+        principal_id: auth.principal,
+        template_name: resource.template_name,
+    })
+    .map_err(map_domain_error)?;
+
+    state
+        .policy_template_command_service
+        .handle_apply_table_policy_template(command)
+        .await
+        .map_err(map_domain_error)?;
+
+    Ok(StatusCode::NO_CONTENT)
 }
 
 #[utoipa::path(
@@ -801,6 +936,7 @@ fn map_domain_error(error: DataApiDomainError) -> (StatusCode, Json<DataApiError
         | DataApiDomainError::PayloadTooLarge
         | DataApiDomainError::InvalidPayload
         | DataApiDomainError::InvalidQueryParameters
+        | DataApiDomainError::InvalidPolicyTemplateName
         | DataApiDomainError::NonEditableColumn(_) => StatusCode::BAD_REQUEST,
         DataApiDomainError::MissingAuthentication | DataApiDomainError::InvalidAuthentication => {
             StatusCode::UNAUTHORIZED

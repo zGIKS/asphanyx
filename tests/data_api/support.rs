@@ -1,9 +1,9 @@
 #[path = "support/fakes.rs"]
-mod fakes;
+pub mod fakes;
 #[path = "support/fixtures.rs"]
 pub mod fixtures;
 #[path = "support/harness.rs"]
-mod harness;
+pub mod harness;
 
 pub use fixtures::{
     create_row_command, get_row_query, list_rows_query, patch_row_command, sample_payload,

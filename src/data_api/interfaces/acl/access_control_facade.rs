@@ -23,6 +23,20 @@ pub struct DataApiAuthorizationBootstrapRequest {
     pub writable_columns: Vec<String>,
 }
 
+#[derive(Clone, Debug)]
+pub struct DataApiPolicyTemplateRuleUpsertRequest {
+    pub action_name: String,
+    pub allowed_columns: Option<Vec<String>>,
+}
+
+#[derive(Clone, Debug)]
+pub struct DataApiPolicyTemplateApplyRequest {
+    pub tenant_id: String,
+    pub principal_id: String,
+    pub resource_name: String,
+    pub policies: Vec<DataApiPolicyTemplateRuleUpsertRequest>,
+}
+
 #[async_trait]
 pub trait AccessControlFacade: Send + Sync {
     async fn check_table_permission(
@@ -33,5 +47,10 @@ pub trait AccessControlFacade: Send + Sync {
     async fn bootstrap_table_access(
         &self,
         request: DataApiAuthorizationBootstrapRequest,
+    ) -> Result<(), DataApiDomainError>;
+
+    async fn apply_table_policy_template(
+        &self,
+        request: DataApiPolicyTemplateApplyRequest,
     ) -> Result<(), DataApiDomainError>;
 }

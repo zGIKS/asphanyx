@@ -112,6 +112,13 @@ pub trait DataApiRepository: Send + Sync {
         table_name: &str,
     ) -> Result<Vec<String>, DataApiDomainError>;
 
+    async fn list_readable_columns(
+        &self,
+        tenant_id: &TenantId,
+        schema_name: &str,
+        table_name: &str,
+    ) -> Result<Vec<String>, DataApiDomainError>;
+
     async fn list_access_catalog(
         &self,
         tenant_id: &TenantId,

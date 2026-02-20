@@ -19,9 +19,12 @@ use crate::access_control::{
     },
     interfaces::acl::access_control_facade::{
         AccessControlFacade, AccessControlPermissionDecision, AccessControlPermissionRequest,
-        DataApiAccessBootstrapRequest,
+        DataApiAccessBootstrapRequest, DataApiPolicyBatchUpsertRequest,
+        DataApiPolicyRuleUpsertRequest,
     },
 };
+
+const DATA_API_AUTHENTICATED_ROLE: &str = "data_api_authenticated";
 
 pub struct AccessControlFacadeImpl {
     command_service: Arc<dyn AccessControlCommandService>,
@@ -37,6 +40,56 @@ impl AccessControlFacadeImpl {
             command_service,
             query_service,
         }
+    }
+
+    async fn assign_data_api_authenticated_role(
+        &self,
+        tenant_id: String,
+        principal_id: String,
+    ) -> Result<(), crate::access_control::domain::model::enums::access_control_domain_error::AccessControlDomainError>
+    {
+        self.command_service
+            .handle_assign_role(AssignRoleToPrincipalCommand::new(
+                tenant_id,
+                principal_id,
+                DATA_API_AUTHENTICATED_ROLE.to_string(),
+            )?)
+            .await
+    }
+
+    async fn upsert_data_api_policy(
+        &self,
+        tenant_id: String,
+        resource_name: String,
+        policy: DataApiPolicyRuleUpsertRequest,
+    ) -> Result<(), crate::access_control::domain::model::enums::access_control_domain_error::AccessControlDomainError>
+    {
+        let unique_allowed = policy
+            .allowed_columns
+            .map(|columns| {
+                columns
+                    .into_iter()
+                    .filter(|column| !column.trim().is_empty())
+                    .collect::<std::collections::BTreeSet<_>>()
+                    .into_iter()
+                    .collect::<Vec<_>>()
+            })
+            .filter(|columns| !columns.is_empty());
+
+        self.command_service
+            .handle_upsert_policy(UpsertPolicyRuleCommand::new(
+                UpsertPolicyRuleCommandParts {
+                    tenant_id,
+                    role_name: DATA_API_AUTHENTICATED_ROLE.to_string(),
+                    resource_name,
+                    action_name: policy.action_name,
+                    effect: PermissionEffect::Allow,
+                    allowed_columns: unique_allowed,
+                    denied_columns: None,
+                    owner_scope: false,
+                },
+            )?)
+            .await
     }
 }
 
@@ -69,102 +122,49 @@ impl AccessControlFacade for AccessControlFacadeImpl {
         &self,
         request: DataApiAccessBootstrapRequest,
     ) -> Result<(), crate::access_control::domain::model::enums::access_control_domain_error::AccessControlDomainError>{
-        let role_name = "data_api_authenticated".to_string();
-
-        self.command_service
-            .handle_assign_role(AssignRoleToPrincipalCommand::new(
-                request.tenant_id.clone(),
-                request.principal_id,
-                role_name.clone(),
-            )?)
-            .await?;
-
-        let unique_readable = request
-            .readable_columns
-            .into_iter()
-            .filter(|column| !column.trim().is_empty())
-            .collect::<std::collections::BTreeSet<_>>()
-            .into_iter()
-            .collect::<Vec<_>>();
-
-        let unique_writable = request
-            .writable_columns
-            .into_iter()
-            .filter(|column| !column.trim().is_empty())
-            .collect::<std::collections::BTreeSet<_>>()
-            .into_iter()
-            .collect::<Vec<_>>();
-
-        self.command_service
-            .handle_upsert_policy(UpsertPolicyRuleCommand::new(
-                UpsertPolicyRuleCommandParts {
-                    tenant_id: request.tenant_id.clone(),
-                    role_name: role_name.clone(),
-                    resource_name: request.resource_name.clone(),
+        self.upsert_data_api_policies(DataApiPolicyBatchUpsertRequest {
+            tenant_id: request.tenant_id,
+            principal_id: request.principal_id,
+            resource_name: request.resource_name,
+            policies: vec![
+                DataApiPolicyRuleUpsertRequest {
                     action_name: "read".to_string(),
-                    effect: PermissionEffect::Allow,
-                    allowed_columns: if unique_readable.is_empty() {
-                        None
-                    } else {
-                        Some(unique_readable)
-                    },
-                    denied_columns: None,
-                    owner_scope: false,
+                    allowed_columns: Some(request.readable_columns),
                 },
-            )?)
-            .await?;
-
-        self.command_service
-            .handle_upsert_policy(UpsertPolicyRuleCommand::new(
-                UpsertPolicyRuleCommandParts {
-                    tenant_id: request.tenant_id.clone(),
-                    role_name: role_name.clone(),
-                    resource_name: request.resource_name.clone(),
+                DataApiPolicyRuleUpsertRequest {
                     action_name: "create".to_string(),
-                    effect: PermissionEffect::Allow,
-                    allowed_columns: if unique_writable.is_empty() {
-                        None
-                    } else {
-                        Some(unique_writable.clone())
-                    },
-                    denied_columns: None,
-                    owner_scope: false,
+                    allowed_columns: Some(request.writable_columns.clone()),
                 },
-            )?)
-            .await?;
-
-        self.command_service
-            .handle_upsert_policy(UpsertPolicyRuleCommand::new(
-                UpsertPolicyRuleCommandParts {
-                    tenant_id: request.tenant_id.clone(),
-                    role_name: role_name.clone(),
-                    resource_name: request.resource_name.clone(),
+                DataApiPolicyRuleUpsertRequest {
                     action_name: "update".to_string(),
-                    effect: PermissionEffect::Allow,
-                    allowed_columns: if unique_writable.is_empty() {
-                        None
-                    } else {
-                        Some(unique_writable)
-                    },
-                    denied_columns: None,
-                    owner_scope: false,
+                    allowed_columns: Some(request.writable_columns),
                 },
-            )?)
+                DataApiPolicyRuleUpsertRequest {
+                    action_name: "delete".to_string(),
+                    allowed_columns: None,
+                },
+            ],
+        })
+        .await
+    }
+
+    async fn upsert_data_api_policies(
+        &self,
+        request: DataApiPolicyBatchUpsertRequest,
+    ) -> Result<(), crate::access_control::domain::model::enums::access_control_domain_error::AccessControlDomainError>
+    {
+        self.assign_data_api_authenticated_role(request.tenant_id.clone(), request.principal_id)
             .await?;
 
-        self.command_service
-            .handle_upsert_policy(UpsertPolicyRuleCommand::new(
-                UpsertPolicyRuleCommandParts {
-                    tenant_id: request.tenant_id,
-                    role_name,
-                    resource_name: request.resource_name,
-                    action_name: "delete".to_string(),
-                    effect: PermissionEffect::Allow,
-                    allowed_columns: None,
-                    denied_columns: None,
-                    owner_scope: false,
-                },
-            )?)
-            .await
+        for policy in request.policies {
+            self.upsert_data_api_policy(
+                request.tenant_id.clone(),
+                request.resource_name.clone(),
+                policy,
+            )
+            .await?;
+        }
+
+        Ok(())
     }
 }

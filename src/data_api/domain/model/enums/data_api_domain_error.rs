@@ -53,6 +53,9 @@ pub enum DataApiDomainError {
     #[error("invalid filter or sort expression")]
     InvalidQueryParameters,
 
+    #[error("invalid policy template name")]
+    InvalidPolicyTemplateName,
+
     #[error("record not found")]
     RecordNotFound,
 

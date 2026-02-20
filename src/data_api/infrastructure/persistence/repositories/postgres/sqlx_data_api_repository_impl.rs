@@ -265,6 +265,35 @@ impl DataApiRepository for SqlxDataApiRepositoryImpl {
             .collect())
     }
 
+    async fn list_readable_columns(
+        &self,
+        tenant_id: &TenantId,
+        schema_name: &str,
+        table_name: &str,
+    ) -> Result<Vec<String>, DataApiDomainError> {
+        let statement = r#"
+            SELECT column_name
+            FROM data_api_column_metadata
+            WHERE tenant_id = $1
+                AND schema_name = $2
+                AND table_name = $3
+                AND readable = TRUE
+        "#;
+
+        let rows = sqlx::query(statement)
+            .bind(tenant_id.value())
+            .bind(schema_name)
+            .bind(table_name)
+            .fetch_all(&self.admin_pool)
+            .await
+            .map_err(|e| DataApiDomainError::InfrastructureError(e.to_string()))?;
+
+        Ok(rows
+            .into_iter()
+            .filter_map(|row| row.try_get::<String, _>("column_name").ok())
+            .collect())
+    }
+
     async fn list_access_catalog(
         &self,
         tenant_id: &TenantId,

@@ -16,6 +16,7 @@ use swagger_axum_api::{
     data_api::{
         build_data_api_router,
         interfaces::rest::resources::{
+            apply_table_policy_template_request_resource::ApplyTablePolicyTemplateRequestResource,
             data_api_auth_headers_resource::DataApiAuthHeadersResource,
             data_api_column_access_metadata_update_request_resource::DataApiColumnAccessMetadataUpdateRequestResource,
             data_api_error_response_resource::DataApiErrorResponseResource,
@@ -23,6 +24,7 @@ use swagger_axum_api::{
             data_api_payload_resource::DataApiPayloadResource,
             data_api_table_access_catalog_resource::DataApiTableAccessCatalogEntryResource,
             data_api_table_access_metadata_update_request_resource::DataApiTableAccessMetadataUpdateRequestResource,
+            policy_template_catalog_resource::PolicyTemplateCatalogResource,
         },
     },
     provisioner::{
@@ -52,6 +54,8 @@ use utoipa_swagger_ui::SwaggerUi;
         swagger_axum_api::data_api::interfaces::rest::controllers::data_api_rest_controller::get_row,
         swagger_axum_api::data_api::interfaces::rest::controllers::data_api_rest_controller::create_row,
         swagger_axum_api::data_api::interfaces::rest::controllers::data_api_rest_controller::list_access_catalog,
+        swagger_axum_api::data_api::interfaces::rest::controllers::data_api_rest_controller::list_policy_templates,
+        swagger_axum_api::data_api::interfaces::rest::controllers::data_api_rest_controller::apply_table_policy_template,
         swagger_axum_api::data_api::interfaces::rest::controllers::data_api_rest_controller::upsert_table_access_metadata,
         swagger_axum_api::data_api::interfaces::rest::controllers::data_api_rest_controller::upsert_column_access_metadata,
         swagger_axum_api::data_api::interfaces::rest::controllers::data_api_rest_controller::patch_row,
@@ -75,6 +79,8 @@ use utoipa_swagger_ui::SwaggerUi;
             DataApiTableAccessMetadataUpdateRequestResource,
             DataApiColumnAccessMetadataUpdateRequestResource,
             DataApiTableAccessCatalogEntryResource,
+            ApplyTablePolicyTemplateRequestResource,
+            PolicyTemplateCatalogResource,
             AssignRoleRequestResource,
             UpsertPolicyRuleRequestResource,
             EvaluatePermissionRequestResource,

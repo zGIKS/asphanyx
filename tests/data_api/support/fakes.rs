@@ -19,7 +19,8 @@ use swagger_axum_api::data_api::{
         tenant_schema_resolver_repository::TenantSchemaResolverRepository,
     },
     interfaces::acl::access_control_facade::{
-        AccessControlFacade, DataApiAuthorizationBootstrapRequest, DataApiAuthorizationCheckRequest,
+        AccessControlFacade, DataApiAuthorizationBootstrapRequest,
+        DataApiAuthorizationCheckRequest, DataApiPolicyTemplateApplyRequest,
     },
 };
 
@@ -28,6 +29,7 @@ struct FakeDataApiRepositoryState {
     metadata: Option<TableSchemaMetadata>,
     access: Option<TableAccessMetadata>,
     writable_columns: Vec<String>,
+    readable_columns: Vec<String>,
     create_calls: usize,
     patch_calls: usize,
     delete_calls: usize,
@@ -92,6 +94,12 @@ impl FakeDataApiRepository {
                     authorization_mode: "acl".to_string(),
                 }),
                 writable_columns: vec![
+                    "nombre".to_string(),
+                    "precio".to_string(),
+                    "image_url".to_string(),
+                ],
+                readable_columns: vec![
+                    "id".to_string(),
                     "nombre".to_string(),
                     "precio".to_string(),
                     "image_url".to_string(),
@@ -204,6 +212,16 @@ impl DataApiRepository for FakeDataApiRepository {
         Ok(state.writable_columns.clone())
     }
 
+    async fn list_readable_columns(
+        &self,
+        _tenant_id: &TenantId,
+        _schema_name: &str,
+        _table_name: &str,
+    ) -> Result<Vec<String>, DataApiDomainError> {
+        let state = self.state.lock().expect("mutex poisoned");
+        Ok(state.readable_columns.clone())
+    }
+
     async fn list_access_catalog(
         &self,
         _tenant_id: &TenantId,
@@ -258,6 +276,19 @@ impl DataApiRepository for FakeDataApiRepository {
         criteria: ColumnMetadataUpdateCriteria,
     ) -> Result<(), DataApiDomainError> {
         let mut state = self.state.lock().expect("mutex poisoned");
+        if criteria.readable {
+            if !state
+                .readable_columns
+                .iter()
+                .any(|column| column == column_name)
+            {
+                state.readable_columns.push(column_name.to_string());
+            }
+        } else {
+            state
+                .readable_columns
+                .retain(|column| column != column_name);
+        }
         if criteria.writable {
             if !state
                 .writable_columns
@@ -426,6 +457,7 @@ pub struct AccessCheckCall {
 #[derive(Default)]
 struct FakeAccessControlState {
     calls: Vec<AccessCheckCall>,
+    template_calls: Vec<DataApiPolicyTemplateApplyRequest>,
     deny: bool,
 }
 
@@ -446,6 +478,14 @@ impl FakeAccessControlFacade {
 
     pub fn set_deny(&self, deny: bool) {
         self.state.lock().expect("mutex poisoned").deny = deny;
+    }
+
+    pub fn template_calls(&self) -> Vec<DataApiPolicyTemplateApplyRequest> {
+        self.state
+            .lock()
+            .expect("mutex poisoned")
+            .template_calls
+            .clone()
     }
 }
 
@@ -478,6 +518,18 @@ impl AccessControlFacade for FakeAccessControlFacade {
         &self,
         _request: DataApiAuthorizationBootstrapRequest,
     ) -> Result<(), DataApiDomainError> {
+        Ok(())
+    }
+
+    async fn apply_table_policy_template(
+        &self,
+        request: DataApiPolicyTemplateApplyRequest,
+    ) -> Result<(), DataApiDomainError> {
+        self.state
+            .lock()
+            .expect("mutex poisoned")
+            .template_calls
+            .push(request);
         Ok(())
     }
 }

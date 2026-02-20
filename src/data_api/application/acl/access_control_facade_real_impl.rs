@@ -5,13 +5,14 @@ use async_trait::async_trait;
 use crate::{
     access_control::interfaces::acl::access_control_facade::{
         AccessControlFacade as AccessControlBcFacade, AccessControlPermissionRequest,
-        DataApiAccessBootstrapRequest,
+        DataApiAccessBootstrapRequest, DataApiPolicyBatchUpsertRequest,
+        DataApiPolicyRuleUpsertRequest,
     },
     data_api::{
         domain::model::enums::data_api_domain_error::DataApiDomainError,
         interfaces::acl::access_control_facade::{
             AccessControlFacade, DataApiAuthorizationBootstrapRequest,
-            DataApiAuthorizationCheckRequest,
+            DataApiAuthorizationCheckRequest, DataApiPolicyTemplateApplyRequest,
         },
     },
 };
@@ -65,6 +66,28 @@ impl AccessControlFacade for AccessControlFacadeRealImpl {
                 resource_name: request.resource_name,
                 readable_columns: request.readable_columns,
                 writable_columns: request.writable_columns,
+            })
+            .await
+            .map_err(|e| DataApiDomainError::InfrastructureError(e.to_string()))
+    }
+
+    async fn apply_table_policy_template(
+        &self,
+        request: DataApiPolicyTemplateApplyRequest,
+    ) -> Result<(), DataApiDomainError> {
+        self.facade
+            .upsert_data_api_policies(DataApiPolicyBatchUpsertRequest {
+                tenant_id: request.tenant_id,
+                principal_id: request.principal_id,
+                resource_name: request.resource_name,
+                policies: request
+                    .policies
+                    .into_iter()
+                    .map(|policy| DataApiPolicyRuleUpsertRequest {
+                        action_name: policy.action_name,
+                        allowed_columns: policy.allowed_columns,
+                    })
+                    .collect(),
             })
             .await
             .map_err(|e| DataApiDomainError::InfrastructureError(e.to_string()))

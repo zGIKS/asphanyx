@@ -29,6 +29,20 @@ pub struct DataApiAccessBootstrapRequest {
     pub writable_columns: Vec<String>,
 }
 
+#[derive(Clone, Debug)]
+pub struct DataApiPolicyRuleUpsertRequest {
+    pub action_name: String,
+    pub allowed_columns: Option<Vec<String>>,
+}
+
+#[derive(Clone, Debug)]
+pub struct DataApiPolicyBatchUpsertRequest {
+    pub tenant_id: String,
+    pub principal_id: String,
+    pub resource_name: String,
+    pub policies: Vec<DataApiPolicyRuleUpsertRequest>,
+}
+
 #[async_trait]
 pub trait AccessControlFacade: Send + Sync {
     async fn check_permission(
@@ -39,5 +53,10 @@ pub trait AccessControlFacade: Send + Sync {
     async fn bootstrap_data_api_access(
         &self,
         request: DataApiAccessBootstrapRequest,
+    ) -> Result<(), AccessControlDomainError>;
+
+    async fn upsert_data_api_policies(
+        &self,
+        request: DataApiPolicyBatchUpsertRequest,
     ) -> Result<(), AccessControlDomainError>;
 }
