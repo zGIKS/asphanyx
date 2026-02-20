@@ -78,7 +78,9 @@ pub fn router(state: ProvisionerRestControllerState) -> Router {
     post,
     path = "/provisioner/databases",
     tag = "provisioner",
-    params(("authorization" = String, Header, description = "Bearer access token")),
+    security(
+        ("bearerAuth" = [])
+    ),
     request_body = CreateProvisionedDatabaseRequestResource,
     responses(
         (status = 201, description = "Provisioned database created", body = ProvisionedDatabaseResource),
@@ -186,8 +188,10 @@ fn hash_database_password(
     path = "/provisioner/databases/{database_name}",
     tag = "provisioner",
     params(
-        ("database_name" = String, Path, description = "Database identifier"),
-        ("authorization" = String, Header, description = "Bearer access token")
+        ("database_name" = String, Path, description = "Database identifier")
+    ),
+    security(
+        ("bearerAuth" = [])
     ),
     responses(
         (status = 204, description = "Provisioned database deleted"),
@@ -228,8 +232,10 @@ pub async fn delete_provisioned_database(
     path = "/provisioner/databases/{database_name}/password",
     tag = "provisioner",
     params(
-        ("database_name" = String, Path, description = "Database identifier"),
-        ("authorization" = String, Header, description = "Bearer access token")
+        ("database_name" = String, Path, description = "Database identifier")
+    ),
+    security(
+        ("bearerAuth" = [])
     ),
     request_body = ChangeProvisionedDatabasePasswordRequestResource,
     responses(
@@ -283,8 +289,10 @@ pub async fn change_provisioned_database_password(
     path = "/provisioner/databases",
     tag = "provisioner",
     params(
-        ("include_deleted" = Option<bool>, Query, description = "Include deleted entries"),
-        ("authorization" = String, Header, description = "Bearer access token")
+        ("include_deleted" = Option<bool>, Query, description = "Include deleted entries")
+    ),
+    security(
+        ("bearerAuth" = [])
     ),
     responses(
         (status = 200, description = "Provisioned database metadata", body = [ProvisionedDatabaseResource]),

@@ -89,8 +89,10 @@ pub fn router(state: DataApiRestControllerState) -> Router {
     params(
         ("x-tenant-id" = String, Header, description = "Tenant id"),
         ("x-tenant-schema" = Option<String>, Header, description = "Schema opcional por tenant"),
-        ("authorization" = String, Header, description = "Bearer access token"),
         ("x-request-id" = Option<String>, Header, description = "Correlation id opcional")
+    ),
+    security(
+        ("bearerAuth" = [])
     ),
     responses(
         (status = 200, description = "Catálogo de metadatos", body = [DataApiTableAccessCatalogEntryResource]),
@@ -146,9 +148,11 @@ pub async fn list_access_catalog(
         ("table_name" = String, Path, description = "Nombre de tabla"),
         ("x-tenant-id" = String, Header, description = "Tenant id"),
         ("x-tenant-schema" = Option<String>, Header, description = "Schema opcional por tenant"),
-        ("authorization" = String, Header, description = "Bearer access token")
     ),
     request_body = DataApiTableAccessMetadataUpdateRequestResource,
+    security(
+        ("bearerAuth" = [])
+    ),
     responses(
         (status = 200, description = "Metadatos de tabla actualizados", body = DataApiTableAccessCatalogEntryResource),
         (status = 400, description = "Request inválido", body = DataApiErrorResponseResource),
@@ -228,9 +232,11 @@ pub async fn upsert_table_access_metadata(
         ("column_name" = String, Path, description = "Nombre de columna"),
         ("x-tenant-id" = String, Header, description = "Tenant id"),
         ("x-tenant-schema" = Option<String>, Header, description = "Schema opcional por tenant"),
-        ("authorization" = String, Header, description = "Bearer access token")
     ),
     request_body = DataApiColumnAccessMetadataUpdateRequestResource,
+    security(
+        ("bearerAuth" = [])
+    ),
     responses(
         (status = 204, description = "Metadatos de columna actualizados"),
         (status = 400, description = "Request inválido", body = DataApiErrorResponseResource),
@@ -279,7 +285,6 @@ pub async fn upsert_column_access_metadata(
         ("table_name" = String, Path, description = "Nombre de tabla expuesta"),
         ("x-tenant-id" = String, Header, description = "Tenant id"),
         ("x-tenant-schema" = Option<String>, Header, description = "Schema opcional por tenant"),
-        ("authorization" = String, Header, description = "Bearer access token"),
         ("x-request-id" = Option<String>, Header, description = "Correlation id opcional"),
         ("x-subject-owner-id" = Option<String>, Header, description = "Owner id del sujeto"),
         ("x-row-owner-id" = Option<String>, Header, description = "Owner id del recurso"),
@@ -288,6 +293,9 @@ pub async fn upsert_column_access_metadata(
         ("offset" = Option<i64>, Query, description = "Offset >= 0"),
         ("order_by" = Option<String>, Query, description = "Campo de orden"),
         ("order_dir" = Option<String>, Query, description = "asc|desc"),
+    ),
+    security(
+        ("bearerAuth" = [])
     ),
     responses(
         (status = 200, description = "Listado dinámico", body = Value),
@@ -375,10 +383,12 @@ pub async fn list_rows(
         ("row_id" = String, Path, description = "ID lógico (columna PK)"),
         ("x-tenant-id" = String, Header, description = "Tenant id"),
         ("x-tenant-schema" = Option<String>, Header, description = "Schema opcional por tenant"),
-        ("authorization" = String, Header, description = "Bearer access token"),
         ("x-request-id" = Option<String>, Header, description = "Correlation id opcional"),
         ("x-subject-owner-id" = Option<String>, Header, description = "Owner id del sujeto"),
         ("x-row-owner-id" = Option<String>, Header, description = "Owner id del recurso")
+    ),
+    security(
+        ("bearerAuth" = [])
     ),
     responses(
         (status = 200, description = "Registro encontrado", body = Value),
@@ -426,12 +436,14 @@ pub async fn get_row(
         ("table_name" = String, Path, description = "Nombre de tabla"),
         ("x-tenant-id" = String, Header, description = "Tenant id"),
         ("x-tenant-schema" = Option<String>, Header, description = "Schema opcional por tenant"),
-        ("authorization" = String, Header, description = "Bearer access token"),
         ("x-request-id" = Option<String>, Header, description = "Correlation id opcional"),
         ("x-subject-owner-id" = Option<String>, Header, description = "Owner id del sujeto"),
         ("x-row-owner-id" = Option<String>, Header, description = "Owner id del recurso")
     ),
     request_body = DataApiPayloadResource,
+    security(
+        ("bearerAuth" = [])
+    ),
     responses(
         (status = 201, description = "Registro creado", body = Value),
         (status = 400, description = "Request inválido", body = DataApiErrorResponseResource),
@@ -489,12 +501,14 @@ pub async fn create_row(
         ("row_id" = String, Path, description = "ID lógico (columna PK)"),
         ("x-tenant-id" = String, Header, description = "Tenant id"),
         ("x-tenant-schema" = Option<String>, Header, description = "Schema opcional por tenant"),
-        ("authorization" = String, Header, description = "Bearer access token"),
         ("x-request-id" = Option<String>, Header, description = "Correlation id opcional"),
         ("x-subject-owner-id" = Option<String>, Header, description = "Owner id del sujeto"),
         ("x-row-owner-id" = Option<String>, Header, description = "Owner id del recurso")
     ),
     request_body = DataApiPayloadResource,
+    security(
+        ("bearerAuth" = [])
+    ),
     responses(
         (status = 200, description = "Registro actualizado", body = Value),
         (status = 400, description = "Request inválido", body = DataApiErrorResponseResource),
@@ -554,10 +568,12 @@ pub async fn patch_row(
         ("row_id" = String, Path, description = "ID lógico (columna PK)"),
         ("x-tenant-id" = String, Header, description = "Tenant id"),
         ("x-tenant-schema" = Option<String>, Header, description = "Schema opcional por tenant"),
-        ("authorization" = String, Header, description = "Bearer access token"),
         ("x-request-id" = Option<String>, Header, description = "Correlation id opcional"),
         ("x-subject-owner-id" = Option<String>, Header, description = "Owner id del sujeto"),
         ("x-row-owner-id" = Option<String>, Header, description = "Owner id del recurso")
+    ),
+    security(
+        ("bearerAuth" = [])
     ),
     responses(
         (status = 204, description = "Registro eliminado"),
@@ -605,10 +621,12 @@ pub async fn delete_row(
         ("table_name" = String, Path, description = "Nombre de tabla"),
         ("x-tenant-id" = String, Header, description = "Tenant id"),
         ("x-tenant-schema" = Option<String>, Header, description = "Schema opcional por tenant"),
-        ("authorization" = String, Header, description = "Bearer access token"),
         ("x-request-id" = Option<String>, Header, description = "Correlation id opcional"),
         ("x-subject-owner-id" = Option<String>, Header, description = "Owner id del sujeto"),
         ("x-row-owner-id" = Option<String>, Header, description = "Owner id del recurso")
+    ),
+    security(
+        ("bearerAuth" = [])
     ),
     responses(
         (status = 200, description = "Metadatos de schema", body = Value),

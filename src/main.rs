@@ -36,6 +36,7 @@ use swagger_axum_api::{
             provisioned_database_resource::ProvisionedDatabaseResource,
         },
     },
+    shared::interfaces::rest::openapi::security::BearerSecurityAddon,
 };
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
@@ -85,7 +86,8 @@ use utoipa_swagger_ui::SwaggerUi;
         (name = "provisioner", description = "PostgreSQL database provisioning bounded context"),
         (name = "data-api", description = "Dynamic and versioned CRUD data API bounded context"),
         (name = "access-control", description = "Authorization policy engine bounded context")
-    )
+    ),
+    modifiers(&BearerSecurityAddon)
 )]
 struct ApiDoc;
 
